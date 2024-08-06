@@ -38,12 +38,11 @@ def load_name_mapping(file_path: str) -> Dict[str, str]:
 
     return name_mapping
 
-def load_model_and_tokenizer(checkpoint_path, original_model_path):
-    print(f"Loading tokenizer from {original_model_path}")
-    print(f"Loading model from {checkpoint_path}")
+def load_model_and_tokenizer(model_name):
+    print(f"Loading model and tokenizer from Hugging Face: {model_name}")
     
-    tokenizer = AutoTokenizer.from_pretrained(original_model_path)
-    model = AutoModelForCausalLM.from_pretrained(checkpoint_path, device_map="auto")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
     
     return model, tokenizer
 
@@ -72,14 +71,11 @@ def convert_to_conversation_pairs(chat_log: List[Dict], name_mapping: Dict[str, 
         if entry['Content'] == 'Joined the server.':
             continue
 
-        # Clean the message content
         cleaned_content = clean_message(entry['Content'])
         
-        # Skip empty messages
         if not cleaned_content:
             continue
 
-        # Replace username with real name if available, using lowercase for lookup
         author = name_mapping.get(entry['Author'].lower(), entry['Author'])
         message = f"{author}: {cleaned_content}"
 
@@ -93,6 +89,7 @@ def convert_to_conversation_pairs(chat_log: List[Dict], name_mapping: Dict[str, 
             current_human = None
 
     return conversation_pairs
+
 class ChatDataset(Dataset):
     def __init__(self, tokenizer, file_path, name_mapping, max_length=512):
         self.tokenizer = tokenizer
@@ -106,20 +103,30 @@ class ChatDataset(Dataset):
     
     def __getitem__(self, idx):
         item = self.data[idx]
-        text = f"Human: {item['human']}\nAssistant: {item['assistant']}"
-        encoding = self.tokenizer(text, max_length=self.max_length, truncation=True, padding='max_length', return_tensors='pt')
-        return encoding['input_ids'].squeeze(), encoding['attention_mask'].squeeze()
+        
+        # Prepare input text (human message) and target text (assistant message)
+        input_text = f"Human: {item['human']}\nAssistant:"
+        target_text = item['assistant']
+        
+        # Tokenize input and target separately
+        input_encoding = self.tokenizer(input_text, max_length=self.max_length, truncation=True, padding='max_length', return_tensors='pt')
+        target_encoding = self.tokenizer(target_text, max_length=self.max_length, truncation=True, padding='max_length', return_tensors='pt')
+        
+        # Combine input and target for training
+        input_ids = torch.cat([input_encoding['input_ids'], target_encoding['input_ids']], dim=1).squeeze(0)
+        attention_mask = torch.cat([input_encoding['attention_mask'], target_encoding['attention_mask']], dim=1).squeeze(0)
+        
+        # Create labels: -100 for input tokens (ignored in loss calculation), and target ids for assistant message
+        labels = torch.full_like(input_ids, -100)
+        labels[input_encoding['input_ids'].shape[1]:] = target_encoding['input_ids'].squeeze(0)
+        
+        return {
+            'input_ids': input_ids[:self.max_length],
+            'attention_mask': attention_mask[:self.max_length],
+            'labels': labels[:self.max_length]
+        }
 
-def data_collator(features):
-    input_ids = torch.stack([f[0] for f in features])
-    attention_mask = torch.stack([f[1] for f in features])
-    return {
-        'input_ids': input_ids,
-        'attention_mask': attention_mask,
-        'labels': input_ids.clone(),
-    }
 def main():
-    # Suppress the specific warning about use_reentrant
     warnings.filterwarnings("ignore", message="torch.utils.checkpoint: the use_reentrant parameter")
 
     if not torch.cuda.is_available():
@@ -131,10 +138,9 @@ def main():
     torch.backends.cudnn.benchmark = True
     torch.cuda.empty_cache()
 
-    checkpoint_path = "models/smollm_135m_openhermes/checkpoint-10000"
-    original_model_path = "HuggingFaceTB/SmolLM-135M"
+    model_name = "HuggingFaceTB/SmolLM-135M"
     
-    model, tokenizer = load_model_and_tokenizer(checkpoint_path, original_model_path)
+    model, tokenizer = load_model_and_tokenizer(model_name)
     tokenizer.pad_token = tokenizer.eos_token
     
     model.resize_token_embeddings(len(tokenizer))
@@ -156,7 +162,7 @@ def main():
 
     training_args = TrainingArguments(
         output_dir="./chat_model_friendtuned",
-        num_train_epochs=10,
+        num_train_epochs=4,
         per_device_train_batch_size=32,
         gradient_accumulation_steps=8,
         learning_rate=1e-4,
@@ -174,7 +180,6 @@ def main():
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        data_collator=data_collator,
     )
 
     try:
