@@ -2,3 +2,8 @@ models
 Cerver*
 name_mapping.txt
 key.txt
+filter.txt
+logs.txt
+gemma_*
+longcustom*
+smollm_*

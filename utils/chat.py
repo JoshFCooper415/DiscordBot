@@ -35,7 +35,7 @@ def generate_response(model, tokenizer, prompt, max_length=1000):
     return response.replace(prompt, "").strip()
 
 def chat():
-    checkpoint_path = "smollm_135m_openhermes/checkpoint-10000"  # Path to your checkpoint
+    checkpoint_path = "longcustom_finetuned_results\checkpoint-2700"  # Path to your checkpoint
     original_model_path = "HuggingFaceTB/SmolLM-135M"  # Path to the original model
     
     try:

@@ -1,104 +1,127 @@
 import torch
-from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer
-from torch.cuda.amp import autocast
 from datasets import load_dataset
+from torch.utils.data import Dataset as TorchDataset, random_split
+from torch.amp import autocast
 import os
 
-class StreamingCosmopediaDataset(torch.utils.data.IterableDataset):
-    def __init__(self, block_size=128):
-        self.block_size = block_size
-        self.dataset = load_dataset("HuggingFaceTB/smollm-corpus", "fineweb-edu-dedup", split="train", streaming=True)
-        self.tokenizer = AutoTokenizer.from_pretrained("gpt2")
-        self.tokenizer.pad_token = self.tokenizer.eos_token
-
-    def __iter__(self):
-        for item in self.dataset:
-            text = item['text']
-            tokens = self.tokenizer.encode(text, max_length=self.block_size + 1, truncation=True)
-            if len(tokens) < self.block_size + 1:
-                continue  # Skip sequences that are too short
-            for i in range(0, len(tokens) - self.block_size):
-                chunk = tokens[i:i + self.block_size + 1]
-                x = torch.tensor(chunk[:-1], dtype=torch.long)
-                y = torch.tensor(chunk[1:], dtype=torch.long)
-                yield {'input_ids': x, 'labels': y}
-
-def get_cosmopedia_loader(batch_size, block_size):
-    dataset = StreamingCosmopediaDataset(block_size)
-    return DataLoader(dataset, batch_size=batch_size)
-
-class DebugTrainer(Trainer):
-    def compute_loss(self, model, inputs, return_outputs=False):
+class CustomDataset(TorchDataset):
+    def __init__(self, tokenizer, max_length=512):
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        
+        # Load the sentence-transformers/reddit dataset
         try:
-            return super().compute_loss(model, inputs, return_outputs)
-        except RuntimeError as e:
-            print(f"RuntimeError in compute_loss: {e}")
-            print(f"Input shapes: {{k: v.shape for k, v in inputs.items()}}")
+            self.data = load_dataset("sentence-transformers/reddit", split="train")
+            
+            print(f"Dataset info: {self.data}")
+            print(f"Number of samples: {len(self.data)}")
+            print(f"First sample: {self.data[0] if len(self.data) > 0 else 'No samples'}")
+            
+            if len(self.data) == 0:
+                raise ValueError("The dataset is empty.")
+            
+            if 'title' not in self.data.column_names or 'body' not in self.data.column_names:
+                raise KeyError("The dataset does not contain 'title' and 'body' columns.")
+        
+        except Exception as e:
+            print(f"Error loading the dataset: {e}")
             raise
+        
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        title = self.data[idx]['title']
+        body = self.data[idx]['body']
+        full_text = f"Title: {title}\n\nBody: {body}"
+        encoding = self.tokenizer(full_text, max_length=self.max_length, truncation=True, padding='max_length', return_tensors='pt')
+        return encoding['input_ids'].squeeze(), encoding['attention_mask'].squeeze()
+
+def data_collator(features):
+    input_ids = torch.stack([f[0] for f in features])
+    attention_mask = torch.stack([f[1] for f in features])
+    
+    # Shift the input_ids to create labels for next token prediction
+    labels = input_ids.clone()
+    labels[:, :-1] = input_ids[:, 1:]
+    labels[:, -1] = -100  # Ignore the last token as there's no next token to predict
+    
+    return {
+        'input_ids': input_ids,
+        'attention_mask': attention_mask,
+        'labels': labels,
+    }
 
 def main():
     if not torch.cuda.is_available():
         print("No GPU found. Please use a GPU to train this model.")
         return
+    
     device = torch.device("cuda")
     print(f"Using device: {device}")
     torch.backends.cudnn.benchmark = True
     torch.cuda.empty_cache()
 
-    # Enable CUDA error debugging
-    os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-
     # Load the pre-trained model and tokenizer
     checkpoint = "HuggingFaceTB/SmolLM-135M"
     tokenizer = AutoTokenizer.from_pretrained(checkpoint)
     tokenizer.pad_token = tokenizer.eos_token
-
+    
     model = AutoModelForCausalLM.from_pretrained(checkpoint)
     model.resize_token_embeddings(len(tokenizer))
     model = model.to(device)
+    
+    # Create the dataset
+    try:
+        full_dataset = CustomDataset(tokenizer)
+    except Exception as e:
+        print(f"Failed to create dataset: {e}")
+        return
 
-    # Create data loaders
-    train_loader = get_cosmopedia_loader(batch_size=4, block_size=512)  # Reduced batch size
-    val_loader = get_cosmopedia_loader(batch_size=4, block_size=512)  # Reduced batch size
-
-    # Calculate max_steps
-    total_train_steps = 10000  # Reduced number of steps
+    # Split the dataset
+    train_size = int(0.9 * len(full_dataset))
+    val_size = len(full_dataset) - train_size
+    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+    print(f"Train dataset size: {len(train_dataset)}")
+    print(f"Validation dataset size: {len(val_dataset)}")
 
     training_args = TrainingArguments(
-        output_dir="./smollm_135m_retrained",
-        max_steps=total_train_steps,
-        per_device_train_batch_size=4,  # Reduced batch size
-        per_device_eval_batch_size=4,  # Reduced batch size
-        gradient_accumulation_steps=4,  # Reduced gradient accumulation steps
-        learning_rate=1e-5,  # Reduced learning rate
-        warmup_steps=1000,
+        output_dir="./smollm_135m_reddit",
+        num_train_epochs=1,
+        per_device_train_batch_size=32,
+        per_device_eval_batch_size=8,
+        gradient_accumulation_steps=8,
+        learning_rate=1e-4,
+        warmup_steps=5000,
         weight_decay=0.01,
         logging_steps=100,
-        save_steps=1000,
+        save_steps=5000,
         save_total_limit=2,
-        fp16=False,  # Disabled mixed precision training
+        fp16=True,
         evaluation_strategy="steps",
         eval_steps=500,
-        dataloader_num_workers=0,  # Disabled multi-processing
+        dataloader_num_workers=4,
         gradient_checkpointing=True,
     )
 
-    trainer = DebugTrainer(
+    trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=train_loader.dataset,
-        eval_dataset=val_loader.dataset,
+        train_dataset=train_dataset,
+        eval_dataset=val_dataset,
+        data_collator=data_collator,
     )
 
     try:
-        trainer.train()
+        with autocast(device_type='cuda'):
+            trainer.train()
     except Exception as e:
         print(f"Error during training: {e}")
         raise
 
-    model.save_pretrained("./smollm_135m_retrained_final")
-    tokenizer.save_pretrained("./smollm_135m_retrained_final")
+    model.save_pretrained("./smollm_135m_reddit")
+    tokenizer.save_pretrained("./smollm_135m_reddit")
     print("Training completed and model saved.")
 
 if __name__ == "__main__":

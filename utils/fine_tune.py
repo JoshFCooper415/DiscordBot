@@ -46,7 +46,7 @@ def main():
     torch.cuda.empty_cache()
 
     # Load the fine-tuned model and tokenizer
-    checkpoint = "./smollm_135m_retrained_final"
+    checkpoint = "./smollm_135m_reddit_hf"
     if not os.path.exists(checkpoint):
         print(f"Checkpoint {checkpoint} not found. Please ensure the directory exists.")
         return
@@ -65,11 +65,11 @@ def main():
 
     training_args = TrainingArguments(
         output_dir="./smollm_135m_openhermes",
-        num_train_epochs=3,
-        per_device_train_batch_size=8,
-        per_device_eval_batch_size=8,
+        num_train_epochs=2,
+        per_device_train_batch_size=32,
+        per_device_eval_batch_size=32,
         gradient_accumulation_steps=8,
-        learning_rate=5e-6,
+        learning_rate=5e-5,
         warmup_steps=2000,
         weight_decay=0.01,
         logging_steps=100,

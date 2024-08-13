@@ -38,12 +38,19 @@ def load_name_mapping(file_path: str) -> Dict[str, str]:
 
     return name_mapping
 
-def load_model_and_tokenizer(checkpoint_path, original_model_path):
-    print(f"Loading tokenizer from {original_model_path}")
-    print(f"Loading model from {checkpoint_path}")
+def load_model_and_tokenizer(model_path, tokenizer_name):
+    print(f"Loading model from local path: {model_path}")
+    print(f"Loading tokenizer: {tokenizer_name}")
     
-    tokenizer = AutoTokenizer.from_pretrained(original_model_path)
-    model = AutoModelForCausalLM.from_pretrained(checkpoint_path, device_map="auto")
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+    model = AutoModelForCausalLM.from_pretrained(model_path)
+    
+    # Set the pad token to be the same as the EOS token if it's not set
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        print("Pad token set to EOS token:", tokenizer.pad_token)
+    
+    print("Model and tokenizer loaded.")
     
     return model, tokenizer
 
@@ -93,8 +100,10 @@ def convert_to_conversation_pairs(chat_log: List[Dict], name_mapping: Dict[str, 
             current_human = None
 
     return conversation_pairs
+
+
 class ChatDataset(Dataset):
-    def __init__(self, tokenizer, file_path, name_mapping, max_length=512):
+    def __init__(self, tokenizer, file_path, name_mapping, max_length=1024):  # Reduced max_length
         self.tokenizer = tokenizer
         self.max_length = max_length
         
@@ -106,38 +115,43 @@ class ChatDataset(Dataset):
     
     def __getitem__(self, idx):
         item = self.data[idx]
-        text = f"Human: {item['human']}\nAssistant: {item['assistant']}"
-        encoding = self.tokenizer(text, max_length=self.max_length, truncation=True, padding='max_length', return_tensors='pt')
-        return encoding['input_ids'].squeeze(), encoding['attention_mask'].squeeze()
+        
+        # Prepare input text (human message) and target text (assistant message)
+        input_text = f"Human: {item['human']}\nAssistant: {item['assistant']}"
+        
+        # Tokenize input
+        encoding = self.tokenizer(input_text, max_length=self.max_length, truncation=True, padding='max_length', return_tensors='pt')
+        
+        input_ids = encoding['input_ids'].squeeze(0)
+        attention_mask = encoding['attention_mask'].squeeze(0)
+        
+        # Create labels: -100 for padded tokens
+        labels = input_ids.clone()
+        labels[labels == self.tokenizer.pad_token_id] = -100
+        
+        return {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'labels': labels
+        }
 
-def data_collator(features):
-    input_ids = torch.stack([f[0] for f in features])
-    attention_mask = torch.stack([f[1] for f in features])
-    return {
-        'input_ids': input_ids,
-        'attention_mask': attention_mask,
-        'labels': input_ids.clone(),
-    }
 def main():
-    # Suppress the specific warning about use_reentrant
     warnings.filterwarnings("ignore", message="torch.utils.checkpoint: the use_reentrant parameter")
 
-    if not torch.cuda.is_available():
-        print("No GPU found. Please use a GPU to train this model.")
-        return
-    
-    device = torch.device("cuda")
-    print(f"Using device: {device}")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print(f"Using GPU: {torch.cuda.get_device_name(0)}")
+    else:
+        device = torch.device("cpu")
+        print("Using CPU. Training will be slow.")
+
     torch.backends.cudnn.benchmark = True
     torch.cuda.empty_cache()
 
-    checkpoint_path = "models/smollm_135m_openhermes/checkpoint-10000"
-    original_model_path = "HuggingFaceTB/SmolLM-135M"
+    model_path = "./smollm_135m_openhermes_final"  # Local path to your model
+    tokenizer_name = "HuggingFaceTB/SmolLM-135M"  # Tokenizer from HuggingFace
     
-    model, tokenizer = load_model_and_tokenizer(checkpoint_path, original_model_path)
-    tokenizer.pad_token = tokenizer.eos_token
-    
-    model.resize_token_embeddings(len(tokenizer))
+    model, tokenizer = load_model_and_tokenizer(model_path, tokenizer_name)
     model = model.to(device)
     
     csv_file_path = r"C:\Users\joshf\smolLm\Cerver - D2 and Chill - chamber-of [994776397824409652].csv"
@@ -155,37 +169,35 @@ def main():
     print(f"Dataset size: {len(train_dataset)}")
 
     training_args = TrainingArguments(
-        output_dir="./chat_model_friendtuned",
-        num_train_epochs=10,
-        per_device_train_batch_size=32,
+        output_dir="./smollm_friendtuned_30",
+        num_train_epochs=50,
+        per_device_train_batch_size=16,
         gradient_accumulation_steps=8,
-        learning_rate=1e-4,
-        warmup_steps=500,
+        learning_rate=1e-5,
+        warmup_steps=100,
         weight_decay=0.01,
-        logging_steps=100,
-        save_steps=1000,
+        logging_steps=10,
+        save_steps=200,
         save_total_limit=2,
-        fp16=True,
-        dataloader_num_workers=4,
+        fp16=torch.cuda.is_available(),
         gradient_checkpointing=True,
+        optim="adamw_torch",
     )
 
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        data_collator=data_collator,
     )
 
     try:
-        with autocast():
-            trainer.train()
+        trainer.train()
     except Exception as e:
         print(f"Error during training: {e}")
         raise
 
-    model.save_pretrained("./chat_model_finetuned_final")
-    tokenizer.save_pretrained("./chat_model_finetuned_final")
+    model.save_pretrained("./smollm_finetuned_final")
+    tokenizer.save_pretrained("./smollm_finetuned_final")
     print("Training completed and model saved.")
 
 if __name__ == "__main__":

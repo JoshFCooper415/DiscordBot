@@ -2,11 +2,12 @@ import warnings
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer
 from torch.utils.data import Dataset
-from torch.cuda.amp import autocast
 import os
 import csv
 import re
 from typing import List, Dict
+from transformers import BitsAndBytesConfig
+from peft import prepare_model_for_kbit_training, LoraConfig, get_peft_model
 
 def load_name_mapping(file_path: str) -> Dict[str, str]:
     name_mapping = {}
@@ -38,6 +39,67 @@ def load_name_mapping(file_path: str) -> Dict[str, str]:
 
     return name_mapping
 
+def verify_gpu():
+    if torch.cuda.is_available():
+        print(f"CUDA is available. Using GPU: {torch.cuda.get_device_name(0)}")
+        print(f"Number of GPUs: {torch.cuda.device_count()}")
+        print(f"Current GPU: {torch.cuda.current_device()}")
+        print(f"GPU Memory Usage: {torch.cuda.memory_allocated() / 1024**2:.2f} MB")
+    else:
+        print("CUDA is not available. Training will be on CPU and may be very slow.")
+
+def load_model_and_tokenizer(model_name, auth_token):
+    print(f"Loading model and tokenizer: {model_name}")
+    
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=auth_token)
+    print("Tokenizer loaded.")
+    
+    # Configure 4-bit quantization
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.float16
+    )
+    
+    # Check for CUDA availability
+    device_map = "auto" if torch.cuda.is_available() else None
+    
+    print("Loading model...")
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name, 
+        use_auth_token=auth_token,
+        quantization_config=quantization_config,
+        device_map=device_map,
+        trust_remote_code=True
+    )
+    print("Base model loaded.")
+    
+    # Prepare the model for k-bit training
+    print("Preparing model for k-bit training...")
+    model = prepare_model_for_kbit_training(model)
+    
+    # Define LoRA Config
+    lora_config = LoraConfig(
+        r=8,
+        lora_alpha=32,
+        target_modules=["q_proj", "v_proj"],
+        lora_dropout=0.05,
+        bias="none",
+        task_type="CAUSAL_LM"
+    )
+    
+    # Add LoRA adapters
+    print("Adding LoRA adapters...")
+    model = get_peft_model(model, lora_config)
+    
+    # Set the pad token to be the same as the EOS token if it's not set
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        print("Pad token set to EOS token:", tokenizer.pad_token)
+    
+    print("Model and tokenizer loaded with 4-bit quantization and LoRA adapters.")
+    
+    return model, tokenizer
+
 def read_chat_log(file_path: str) -> List[Dict]:
     with open(file_path, 'r', encoding='utf-8') as file:
         reader = csv.DictReader(file)
@@ -63,11 +125,14 @@ def convert_to_conversation_pairs(chat_log: List[Dict], name_mapping: Dict[str, 
         if entry['Content'] == 'Joined the server.':
             continue
 
+        # Clean the message content
         cleaned_content = clean_message(entry['Content'])
         
+        # Skip empty messages
         if not cleaned_content:
             continue
 
+        # Replace username with real name if available, using lowercase for lookup
         author = name_mapping.get(entry['Author'].lower(), entry['Author'])
         message = f"{author}: {cleaned_content}"
 
@@ -81,31 +146,9 @@ def convert_to_conversation_pairs(chat_log: List[Dict], name_mapping: Dict[str, 
             current_human = None
 
     return conversation_pairs
-def load_model_and_tokenizer(model_name):
-    print(f"Loading model and tokenizer from Hugging Face: {model_name}")
-    
-    # For GGUF models, we need to use the original model they're based on
-    base_model_name = "microsoft/phi-2"  # Phi-2 is the base model for Cinder-Phi-2
-    
-    tokenizer = AutoTokenizer.from_pretrained(base_model_name, trust_remote_code=True)
-    
-    # Set the pad token to be the same as the EOS token
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-        print("Pad token set to EOS token:", tokenizer.pad_token)
-    
-    model = AutoModelForCausalLM.from_pretrained(base_model_name, trust_remote_code=True, device_map="auto")
-    
-    # Resize the token embeddings if necessary
-    if len(tokenizer) > model.config.vocab_size:
-        model.resize_token_embeddings(len(tokenizer))
-    
-    print("Model loaded in full precision.")
-    
-    return model, tokenizer
 
 class ChatDataset(Dataset):
-    def __init__(self, tokenizer, file_path, name_mapping, max_length=4096):
+    def __init__(self, tokenizer, file_path, name_mapping, max_length=1024):
         self.tokenizer = tokenizer
         self.max_length = max_length
         
@@ -118,7 +161,7 @@ class ChatDataset(Dataset):
     def __getitem__(self, idx):
         item = self.data[idx]
         
-        # Prepare input text (human message) and target text (assistant message)
+        # Manually format the input text
         input_text = f"Human: {item['human']}\nAssistant: {item['assistant']}"
         
         # Tokenize input
@@ -137,71 +180,57 @@ class ChatDataset(Dataset):
             'labels': labels
         }
 
-def check_gpu():
-    print("Checking GPU availability:")
-    print(f"CUDA available: {torch.cuda.is_available()}")
-    if torch.cuda.is_available():
-        print(f"CUDA version: {torch.version.cuda}")
-        print(f"Number of GPUs: {torch.cuda.device_count()}")
-        print(f"Current GPU: {torch.cuda.current_device()}")
-        print(f"GPU name: {torch.cuda.get_device_name(0)}")
-    else:
-        print("No CUDA GPUs available. Please check your PyTorch installation and CUDA setup.")
-
 def main():
     warnings.filterwarnings("ignore", message="torch.utils.checkpoint: the use_reentrant parameter")
 
-    check_gpu()
+    verify_gpu()
 
-    if not torch.cuda.is_available():
-        print("No GPU found. The script will attempt to continue, but training may be very slow.")
-        device = torch.device("cpu")
-    else:
-        device = torch.device("cuda")
+    torch.backends.cudnn.benchmark = True
+    torch.cuda.empty_cache()
 
-    print(f"Using device: {device}")
+    model_name = "google/gemma-2b"  # Using the smaller 2B model
+    auth_token = "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"  # Your auth token
     
-    if torch.cuda.is_available():
-        torch.backends.cudnn.benchmark = True
-        torch.cuda.empty_cache()
-
-    model_name = "Josephgflowers/Cinder-Phi-2-V1-F16-gguf"
+    print("Starting to load model and tokenizer...")
+    model, tokenizer = load_model_and_tokenizer(model_name, auth_token)
     
-    model, tokenizer = load_model_and_tokenizer(model_name)
-    model = model.to(device)  # Explicitly move model to the selected device
+    # Print the number of trainable parameters
+    model.print_trainable_parameters()
     
     csv_file_path = r"C:\Users\joshf\smolLm\Cerver - D2 and Chill - chamber-of [994776397824409652].csv"
     
     name_mapping_path = "name_mapping.txt"
     try:
+        print("Loading name mapping...")
         name_mapping = load_name_mapping(name_mapping_path)
+        print("Name mapping loaded successfully.")
     except Exception as e:
         print(f"Error loading name mapping: {e}")
         print("Please check your name_mapping.txt file and try again.")
         return
 
+    print("Creating dataset...")
     train_dataset = ChatDataset(tokenizer, csv_file_path, name_mapping)
     
     print(f"Dataset size: {len(train_dataset)}")
 
     training_args = TrainingArguments(
-        output_dir="./cinder_phi2_finetuned",
-        num_train_epochs=4,
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=8,
-        learning_rate=2e-5,
-        warmup_steps=500,
+        output_dir="./gemma_finetuned",
+        num_train_epochs=3,
+        per_device_train_batch_size=4,
+        gradient_accumulation_steps=16,
+        learning_rate=5e-5,
+        warmup_steps=100,
         weight_decay=0.01,
-        logging_steps=100,
-        save_steps=1000,
+        logging_steps=10,
+        save_steps=200,
         save_total_limit=2,
-        fp16=torch.cuda.is_available(),  # Only use fp16 if CUDA is available
-        dataloader_num_workers=4,
+        fp16=True,
         gradient_checkpointing=True,
-        optim="adamw_torch",
-        no_cuda=not torch.cuda.is_available(),  # Disable CUDA if not available
+        optim="paged_adamw_8bit"
     )
 
+    print("Setting up trainer...")
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -209,18 +238,16 @@ def main():
     )
 
     try:
-        if torch.cuda.is_available():
-            with autocast():
-                trainer.train()
-        else:
-            trainer.train()
+        print("Starting training...")
+        trainer.train()
     except Exception as e:
         print(f"Error during training: {e}")
         raise
 
-    model.save_pretrained("./cinder_phi2_finetuned_final")
-    tokenizer.save_pretrained("./cinder_phi2_finetuned_final")
-    print("Training completed and model saved.")
+    print("Saving LoRA adapters...")
+    model.save_pretrained("./gemma_finetuned_lora")
+    tokenizer.save_pretrained("./gemma_finetuned_lora")
+    print("Training completed and LoRA adapters saved.")
 
 if __name__ == "__main__":
     main()
