@@ -1,7 +1,7 @@
 models
 Cerver*
 name_mapping.txt
-key.txt
+key*
 filter.txt
 logs.txt
 gemma_*

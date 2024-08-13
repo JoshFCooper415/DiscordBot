@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blending In Game</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        #game-area, #waiting-room, #voting-area, #results-area { display: none; }
+        .prompt { margin-bottom: 10px; }
+        .response { margin-bottom: 20px; }
+        #error-message { color: red; display: none; }
+    </style>
+</head>
+<body>
+    <div id="lobby">
+        <h1>Blending In Game</h1>
+        <div id="create-game">
+            <input type="text" id="creator-name-input" placeholder="Enter Your Name">
+            <button id="create-game-btn">Create New Game</button>
+        </div>
+        <div id="join-game">
+            <input type="text" id="game-id-input" placeholder="Enter Game ID">
+            <input type="text" id="player-name-input" placeholder="Enter Your Name">
+            <button id="join-game-btn">Join Game</button>
+        </div>
+        <div id="error-message"></div>
+    </div>
+
+    <div id="waiting-room">
+        <h2>Waiting for players...</h2>
+        <p>Game ID: <span id="game-id-display"></span></p>
+        <ul id="player-list"></ul>
+        <button id="start-game-btn">Start Game</button>
+    </div>
+
+    <div id="game-area">
+        <h2>Your Prompts</h2>
+        <div id="prompts"></div>
+        <button id="submit-responses-btn">Submit Responses</button>
+    </div>
+
+    <div id="voting-area">
+        <h2>Vote for the Funniest and Most Human-like Responses</h2>
+        <div id="voting-prompts"></div>
+        <button id="submit-vote-btn">Submit Vote</button>
+    </div>
+
+    <div id="results-area">
+        <h2>Game Results</h2>
+        <div id="results"></div>
+        <button id="play-again-btn">Play Again</button>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000/api';
+        const socket = io('http://localhost:5000');
+        let gameId, playerId;
+
+        function showError(message) {
+            $('#error-message').text(message).show();
+            setTimeout(() => $('#error-message').hide(), 3000);
+        }
+
+        function joinGame(gameId, playerName) {
+            $.ajax({
+                url: `${API_URL}/games/${gameId}/join`,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({name: playerName}),
+                success: function(data) {
+                    playerId = data.player_id;
+                    $('#lobby').hide();
+                    $('#waiting-room').show();
+                    $('#game-id-display').text(gameId);
+                    socket.emit('join', {game_id: gameId, player_id: playerId});
+                },
+                error: function(xhr, status, error) {
+                    showError(xhr.responseJSON?.error || "Failed to join game");
+                }
+            });
+        }
+
+        $('#create-game-btn').click(() => {
+            const creatorName = $('#creator-name-input').val().trim();
+            if (!creatorName) {
+                showError("Please enter your name");
+                return;
+            }
+            $.ajax({
+                url: `${API_URL}/games`,
+                method: 'POST',
+                success: function(data) {
+                    gameId = data.game_id;
+                    joinGame(gameId, creatorName);
+                },
+                error: function(xhr, status, error) {
+                    showError("Failed to create game");
+                }
+            });
+        });
+
+        $('#join-game-btn').click(() => {
+            gameId = $('#game-id-input').val().trim();
+            const playerName = $('#player-name-input').val().trim();
+            if (!gameId || !playerName) {
+                showError("Please enter both game ID and your name");
+                return;
+            }
+            joinGame(gameId, playerName);
+        });
+
+        socket.on('player_joined', (data) => {
+            $('#player-list').append(`<li>${data.player_name}</li>`);
+        });
+
+        $('#start-game-btn').click(() => {
+            $.ajax({
+                url: `${API_URL}/games/${gameId}/start`,
+                method: 'POST',
+                success: function(data) {
+                    console.log("Game started");
+                },
+                error: function(xhr, status, error) {
+                    showError("Failed to start game");
+                }
+            });
+        });
+
+        socket.on('game_started', () => {
+            $('#waiting-room').hide();
+            $.ajax({
+                url: `${API_URL}/games/${gameId}/players/${playerId}/prompts`,
+                method: 'GET',
+                success: function(data) {
+                    $('#game-area').show();
+                    $('#prompts').empty();
+                    data.prompts.forEach((prompt, index) => {
+                        $('#prompts').append(`
+                            <div class="prompt">
+                                <p>${prompt}</p>
+                                <textarea class="response" data-index="${index}"></textarea>
+                            </div>
+                        `);
+                    });
+                },
+                error: function(xhr, status, error) {
+                    showError("Failed to get prompts");
+                }
+            });
+        });
+
+        $('#submit-responses-btn').click(() => {
+            const responses = $('.response').map((_, el) => $(el).val()).get();
+            if (responses.some(r => !r.trim())) {
+                showError("Please answer all prompts");
+                return;
+            }
+            $.ajax({
+                url: `${API_URL}/games/${gameId}/players/${playerId}/responses`,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({responses: responses}),
+                success: function(data) {
+                    $('#game-area').hide();
+                },
+                error: function(xhr, status, error) {
+                    showError("Failed to submit responses");
+                }
+            });
+        });
+
+        socket.on('start_voting', (data) => {
+            if (data.current_player === playerId) {
+                $('#voting-area').show();
+                $('#voting-prompts').empty();
+                // You'll need to implement the logic to display responses for voting
+                // This is a placeholder for where you'd populate the voting options
+                $('#voting-prompts').append(`
+                    <div>
+                        <h3>Select the funniest response:</h3>
+                        <select id="funniest-vote">
+                            <option value="">Select an option</option>
+                        </select>
+                        <h3>Select the most human-like response:</h3>
+                        <select id="most-human-vote">
+                            <option value="">Select an option</option>
+                        </select>
+                    </div>
+                `);
+            }
+        });
+
+        $('#submit-vote-btn').click(() => {
+            const funniestVote = $('#funniest-vote').val();
+            const mostHumanVote = $('#most-human-vote').val();
+            if (!funniestVote || !mostHumanVote) {
+                showError("Please select both votes");
+                return;
+            }
+            $.ajax({
+                url: `${API_URL}/games/${gameId}/players/${playerId}/vote`,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({vote: {funniest: funniestVote, most_human: mostHumanVote}}),
+                success: function(data) {
+                    $('#voting-area').hide();
+                },
+                error: function(xhr, status, error) {
+                    showError("Failed to submit vote");
+                }
+            });
+        });
+
+        socket.on('next_voting_player', (data) => {
+            if (data.current_player === playerId) {
+                $('#voting-area').show();
+                // Update voting display for the next player
+                // This is where you'd repopulate the voting options for the next round
+            }
+        });
+
+        socket.on('show_results', (data) => {
+            $('#results-area').show();
+            $('#results').empty();
+            data.results.forEach(result => {
+                $('#results').append(`
+                    <div>
+                        <h3>${result.name}</h3>
+                        <p>Score: ${result.score}</p>
+                    </div>
+                `);
+            });
+        });
+
+        $('#play-again-btn').click(() => {
+            location.reload();
+        });
+    </script>
+</body>
+</html>

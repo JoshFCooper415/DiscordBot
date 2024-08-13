@@ -254,7 +254,7 @@ async def on_message(message):
 
 async def main():
     base_model_path = "google/gemma-2b"  # Path to the base model
-    lora_path = "./gemma_finetuned_lora"  # Path to the LoRA adapters
+    lora_path = "./gemma_finetuned_lora2"  # Path to the LoRA adapters
     name_mapping_path = "name_mapping.txt"
     api_key_path = "key.txt"
     filter_words_path = "filter.txt"

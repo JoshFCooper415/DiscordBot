@@ -61,7 +61,7 @@ def generate_response(model: PreTrainedModel, tokenizer: PreTrainedTokenizer, pr
     return response.replace(prompt, "").strip()
 
 def chat():
-    checkpoint_path = "chat_model_finetuned_final"
+    checkpoint_path = "qwen_finetuned_final"
     original_model_path = "HuggingFaceTB/SmolLM-135M"
     name_mapping_path = "name_mapping.txt"
    

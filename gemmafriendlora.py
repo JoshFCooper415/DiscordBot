@@ -1,7 +1,8 @@
 import warnings
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, ConcatDataset
+from datasets import load_dataset  # Add this import
 import os
 import csv
 import re
@@ -146,7 +147,41 @@ def convert_to_conversation_pairs(chat_log: List[Dict], name_mapping: Dict[str, 
             current_human = None
 
     return conversation_pairs
-
+class TrumpTweetsDataset(Dataset):
+    def __init__(self, tokenizer, min_favorites=150000, max_length=1024):
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        
+        # Load the dataset
+        ds = load_dataset("fschlatt/trump-tweets")
+        
+        # Filter tweets based on the number of favorites
+        self.data = [tweet for tweet in ds['train'] if tweet['favorites'] > min_favorites]
+        
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        tweet = self.data[idx]
+        
+        # Format the input text
+        input_text = f"Human: What did Trump tweet?\nAssistant: Trump: {tweet['text']}"
+        
+        # Tokenize input
+        encoding = self.tokenizer(input_text, max_length=self.max_length, truncation=True, padding='max_length', return_tensors='pt')
+        
+        input_ids = encoding['input_ids'].squeeze(0)
+        attention_mask = encoding['attention_mask'].squeeze(0)
+        
+        # Create labels: -100 for padded tokens
+        labels = input_ids.clone()
+        labels[labels == self.tokenizer.pad_token_id] = -100
+        
+        return {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'labels': labels
+        }
 class ChatDataset(Dataset):
     def __init__(self, tokenizer, file_path, name_mapping, max_length=1024):
         self.tokenizer = tokenizer
@@ -179,7 +214,9 @@ class ChatDataset(Dataset):
             'attention_mask': attention_mask,
             'labels': labels
         }
-
+def load_auth_token(file_path: str) -> str:
+    with open(file_path, 'r') as file:
+        return file.read().strip()
 def main():
     warnings.filterwarnings("ignore", message="torch.utils.checkpoint: the use_reentrant parameter")
 
@@ -189,7 +226,7 @@ def main():
     torch.cuda.empty_cache()
 
     model_name = "google/gemma-2b"  # Using the smaller 2B model
-    auth_token = "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"  # Your auth token
+    auth_token = load_auth_token("key2.txt")
     
     print("Starting to load model and tokenizer...")
     model, tokenizer = load_model_and_tokenizer(model_name, auth_token)
@@ -209,21 +246,27 @@ def main():
         print("Please check your name_mapping.txt file and try again.")
         return
 
-    print("Creating dataset...")
-    train_dataset = ChatDataset(tokenizer, csv_file_path, name_mapping)
+    print("Creating datasets...")
+    chat_dataset = ChatDataset(tokenizer, csv_file_path, name_mapping)
+    trump_dataset = TrumpTweetsDataset(tokenizer, min_favorites=5000)  # Adjust min_favorites as needed
     
-    print(f"Dataset size: {len(train_dataset)}")
+    # Combine the datasets
+    combined_dataset = ConcatDataset([chat_dataset, trump_dataset])
+    
+    print(f"Combined dataset size: {len(combined_dataset)}")
+    print(f"  - Chat dataset size: {len(chat_dataset)}")
+    print(f"  - Trump tweets dataset size: {len(trump_dataset)}")
 
     training_args = TrainingArguments(
         output_dir="./gemma_finetuned",
-        num_train_epochs=3,
+        num_train_epochs=7,
         per_device_train_batch_size=4,
         gradient_accumulation_steps=16,
         learning_rate=5e-5,
-        warmup_steps=100,
+        warmup_steps=300,
         weight_decay=0.01,
-        logging_steps=10,
-        save_steps=200,
+        logging_steps=500,
+        save_steps=500,
         save_total_limit=2,
         fp16=True,
         gradient_checkpointing=True,
@@ -234,7 +277,7 @@ def main():
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=train_dataset,
+        train_dataset=combined_dataset,
     )
 
     try:
@@ -245,8 +288,8 @@ def main():
         raise
 
     print("Saving LoRA adapters...")
-    model.save_pretrained("./gemma_finetuned_lora")
-    tokenizer.save_pretrained("./gemma_finetuned_lora")
+    model.save_pretrained("./gemma_finetuned_lora2")
+    tokenizer.save_pretrained("./gemma_finetuned_lora2")
     print("Training completed and LoRA adapters saved.")
 
 if __name__ == "__main__":
