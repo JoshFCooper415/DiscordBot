@@ -68,6 +68,7 @@ class InferenceBot(commands.Bot):
             import traceback
             traceback.print_exc()
             raise
+
     async def on_message(self, message):
         if message.author == self.user:
             return
@@ -96,8 +97,12 @@ class InferenceBot(commands.Bot):
                 async with message.channel.typing():
                     unredacted_response, redacted_response = await self.generate_response(prompt)
                 
-                # Send the message
-                await message.channel.send(f"{real_target_name}-bot: {redacted_response}")
+                # Split the response into chunks of 2000 characters or less
+                chunks = [redacted_response[i:i+2000] for i in range(0, len(redacted_response), 2000)]
+                
+                # Send each chunk as a separate message
+                for chunk in chunks:
+                    await message.channel.send(f"{real_target_name}-bot: {chunk}")
                 
                 # Log both unredacted and redacted responses
                 await self.log_response(user_name, real_target_name, content, unredacted_response, redacted_response)
@@ -120,7 +125,6 @@ class InferenceBot(commands.Bot):
         device = next(self.model.parameters()).device
         input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(device)
         eos_token_id = self.tokenizer.eos_token_id
-        newline_token_id = self.tokenizer.encode('\n', add_special_tokens=False)[0]
         
         max_length = input_ids.shape[1] + max_tokens  # Limit total length to input + max_tokens
         
@@ -137,14 +141,21 @@ class InferenceBot(commands.Bot):
                 
                 generated_ids = torch.cat([generated_ids, next_token_id], dim=-1)
                 
-                if next_token_id.item() == eos_token_id or next_token_id.item() == newline_token_id:
+                if next_token_id.item() == eos_token_id:
                     break
         
         response = self.tokenizer.decode(generated_ids[0], skip_special_tokens=True)
         response = response.replace(prompt, "").strip()
         
-        # Split the response at the first newline and take only the first part
-        response = response.split('\n')[0]
+        # Remove any content after a line starting with a name followed by a colon
+        response_lines = response.split('\n')
+        filtered_response_lines = []
+        for line in response_lines:
+            if re.match(r'^[A-Za-z]+:', line):
+                break
+            filtered_response_lines.append(line)
+        
+        response = '\n'.join(filtered_response_lines).strip()
         
         return response, self.redact_text(response)
 
@@ -195,6 +206,7 @@ class InferenceBot(commands.Bot):
         log_entry += f"{target_name}-bot (Redacted): {redacted_response}\n\n"
         with open("logs.txt", "a", encoding="utf-8") as log_file:
             log_file.write(log_entry)
+
 def load_api_key(file_path: str) -> str:
     try:
         with open(file_path, 'r') as file:
@@ -202,55 +214,6 @@ def load_api_key(file_path: str) -> str:
     except Exception as e:
         print(f"Error loading API key: {e}")
         return None
-bot = InferenceBot()
-
-@bot.event
-async def on_ready():
-    print(f'{bot.user} has connected to Discord!')
-    print(f'Guild permissions: {bot.guilds[0].me.guild_permissions.value if bot.guilds else "Not in any guild"}')
-
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-
-    if message.content.startswith('!'):
-        parts = message.content[1:].split(maxsplit=1)
-        if len(parts) == 2:
-            target_name, content = parts
-            target_name = target_name.lower()
-            
-            if target_name in bot.name_mapping:
-                real_target_name = bot.name_mapping[target_name]
-            else:
-                real_target_name = target_name.capitalize()
-            
-            user_name = bot.name_mapping.get(message.author.name.lower(), message.author.name)
-            
-            prompt = f"{user_name}: {content}\n{real_target_name}:"
-            
-            try:
-                async with message.channel.typing():
-                    unredacted_response, redacted_response = await bot.generate_response(prompt)
-                
-                # Send the message
-                await message.channel.send(f"{real_target_name}-bot: {redacted_response}")
-                
-                # Log both unredacted and redacted responses
-                await bot.log_response(user_name, real_target_name, content, unredacted_response, redacted_response)
-            except discord.errors.Forbidden:
-                print(f"Error: Bot doesn't have permission to send messages in {message.channel}")
-            except Exception as e:
-                print(f"An error occurred while processing the message: {e}")
-        else:
-            try:
-                await message.channel.send("Please use the format: !username message")
-            except discord.errors.Forbidden:
-                print(f"Error: Bot doesn't have permission to send messages in {message.channel}")
-            except Exception as e:
-                print(f"An error occurred while sending the error message: {e}")
-
-    await bot.process_commands(message)
 
 async def main():
     base_model_path = "google/gemma-2-9b-it"  # Path to the base model

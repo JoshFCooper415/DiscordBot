@@ -225,7 +225,7 @@ def main():
     torch.backends.cudnn.benchmark = True
     torch.cuda.empty_cache()
 
-    model_name = "google/gemma-2b"  # Using the smaller 2B model
+    model_name = "google/gemma-2-9b-it"  # Using the smaller 2B model
     auth_token = load_auth_token("key2.txt")
     
     print("Starting to load model and tokenizer...")
@@ -258,9 +258,9 @@ def main():
     print(f"  - Trump tweets dataset size: {len(trump_dataset)}")
 
     training_args = TrainingArguments(
-        output_dir="./gemma_finetuned",
-        num_train_epochs=7,
-        per_device_train_batch_size=4,
+        output_dir="./gemma_finetuned-9b",
+        num_train_epochs=2,
+        per_device_train_batch_size=2,
         gradient_accumulation_steps=16,
         learning_rate=5e-5,
         warmup_steps=300,
@@ -288,8 +288,8 @@ def main():
         raise
 
     print("Saving LoRA adapters...")
-    model.save_pretrained("./gemma_finetuned_lora2")
-    tokenizer.save_pretrained("./gemma_finetuned_lora2")
+    model.save_pretrained("./gemma_finetuned_lora-9b")
+    tokenizer.save_pretrained("./gemma_finetuned_lora-9b")
     print("Training completed and LoRA adapters saved.")
 
 if __name__ == "__main__":
