@@ -91,7 +91,10 @@ class InferenceBot(commands.Bot):
             
             user_name = self.name_mapping.get(message.author.name.lower(), message.author.name)
             
-            prompt = f"{user_name}: {content}\n{real_target_name}:"
+            # Create the simple role-play instruction
+            role_play_instruction = f"You are now role-playing as {real_target_name}. Respond as {real_target_name} would."
+
+            prompt = f"{role_play_instruction}\n\n{user_name}: {content}\n{real_target_name}:"
             
             try:
                 async with message.channel.typing():
@@ -102,7 +105,7 @@ class InferenceBot(commands.Bot):
                 
                 # Send each chunk as a separate message
                 for chunk in chunks:
-                    await message.channel.send(f"{real_target_name}-bot: {chunk}")
+                    await message.channel.send(f"{real_target_name}: {chunk}")
                 
                 # Log both unredacted and redacted responses
                 await self.log_response(user_name, real_target_name, content, unredacted_response, redacted_response)
@@ -145,7 +148,7 @@ class InferenceBot(commands.Bot):
                     break
         
         response = self.tokenizer.decode(generated_ids[0], skip_special_tokens=True)
-        response = response.replace(prompt, "").strip()
+        response = response.split(prompt)[-1].strip()  # Remove the prompt from the response
         
         # Remove any content after a line starting with a name followed by a colon
         response_lines = response.split('\n')
@@ -173,7 +176,7 @@ class InferenceBot(commands.Bot):
                                 if alias:
                                     self.name_mapping[alias] = real_name
                         except:
-                            return
+                            pass
             print("Name mapping loaded successfully")
         except Exception as e:
             print(f"Error loading name mapping: {e}")
