@@ -11,10 +11,11 @@ os.environ["TOKENIZERS_PARALLELISM"] = "False"
 
 
 # Constants
-ORIGINAL_MODEL_NAME = "google/gemma-2-2b-it"
+ORIGINAL_MODEL_NAME = "HuggingFaceTB/SmolLM-135M-Instruct"
+# ORIGINAL_MODEL_NAME = "google/gemma-2-2b-it"
 # ORIGINAL_MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 # FINETUNED_MODEL_PATH = "C:/Users/joshf/smolLm/longcustom_finetuned_results/checkpoint-3000"  # Adjust this path as needed
-MAX_LENGTH = 20
+MAX_LENGTH = 2048
 TEMPERATURE = 0.7
 TOP_P = 0.9
 
@@ -59,7 +60,14 @@ async def main():
             break
         
         full_prompt = f"Human: {user_input}\n\nAssistant:"
-        response = await generate_response(model, tokenizer, full_prompt, MAX_LENGTH, TEMPERATURE, TOP_P)
+        response = await generate_response(
+            model = model, 
+            tokenizer = tokenizer, 
+            prompt = full_prompt, 
+            max_tokens = MAX_LENGTH, 
+            temperature = TEMPERATURE, 
+            top_p = TOP_P
+        )
         print(f"\nAssistant: {response}\n")
 
 if __name__ == "__main__":

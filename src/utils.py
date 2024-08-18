@@ -41,7 +41,6 @@ def load_model_and_tokenizer(base_model_path: str, quantization_config: QuantoCo
     print(f"Model moved to {device}")
     print("Base model loaded successfully")
     
-    print("Model and tokenizer loaded successfully")
     return model, tokenizer
     
     
@@ -128,7 +127,7 @@ def load_auth_token(file_path: str) -> str:
 async def generate_response(
     model: PreTrainedModel, 
     tokenizer: PreTrainedTokenizer, 
-    prompt: str, 
+    prompt: str,
     max_tokens: int = 2048,
     temperature: float = 0.7, 
     top_p: float = 0.9
@@ -157,13 +156,20 @@ async def generate_response(
             if next_token_id.item() == eos_token_id or next_token_id.item() == newline_token_id:
                 break
     
+            
     response = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
-    response = response.replace(prompt, "").strip()
+    response = response.split(prompt)[-1].strip()  # Remove the prompt from the response
     
-    # Split the response at the first newline and take only the first part
-    response = response.split('\n')[0]
+    # Remove any content after a line starting with a name followed by a colon
+    response_lines = response.split('\n')
+    filtered_response_lines = []
+    for line in response_lines:
+        if re.match(r'^[A-Za-z]+:', line):
+            break
+        filtered_response_lines.append(line)
     
-    # return response, redact_text(response)
+    response = '\n'.join(filtered_response_lines).strip()
+
     return response
 
 

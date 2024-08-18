@@ -63,15 +63,23 @@ class InferenceBot(commands.Bot):
             
             user_name = self.name_mapping.get(message.author.name.lower(), message.author.name)
             
-            prompt = f"{user_name}: {content}\n{real_target_name}:"
+            # Create the simple role-play instruction
+            system_prompt = f"You are now role-playing as {real_target_name}. Respond as {real_target_name} would."
+            # role_play_instruction = f"You are now role-playing as {real_target_name}. Respond as {real_target_name} would."
+
+            prompt = f"{system_prompt}\n\n{user_name}: {content}\n{real_target_name}:"
             
             try:
                 async with message.channel.typing():
-                    unredacted_response = await generate_response(bot.model, bot.tokenizer, prompt)
-                    redacted_response = await redact_text(unredacted_response, bot.filter_patterns)
+                    unredacted_response = await generate_response(self.model, self.tokenizer, prompt)
+                    redacted_response = redact_text(unredacted_response, self.filter_patterns)
                 
-                # Send the message
-                await message.channel.send(f"{real_target_name}-bot: {redacted_response}")
+                # Split the response into chunks of 2000 characters or less
+                chunks = [redacted_response[i:i+2000] for i in range(0, len(redacted_response), 2000)]
+                
+                # Send each chunk as a separate message
+                for chunk in chunks:
+                    await message.channel.send(f"{real_target_name}: {chunk}")
                 
                 # Log both unredacted and redacted responses
                 await self.log_response(user_name, real_target_name, content, unredacted_response, redacted_response)
@@ -97,6 +105,9 @@ class InferenceBot(commands.Bot):
             log_file.write(log_entry)
 
 
+    async def download_user_message_history(self, user_name: str):
+        pass
+        
 
 bot = InferenceBot(
     model_path = BASE_MODEL_PATH, 
