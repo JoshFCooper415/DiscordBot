@@ -5,7 +5,7 @@ from torch.utils.data import ConcatDataset
 from datasets import load_dataset  # Add this import
 from peft import prepare_model_for_kbit_training, LoraConfig, get_peft_model
 
-from utils import verify_gpu, load_name_mapping, load_model_and_tokenizer, load_auth_token
+from utils import show_gpu_specs, load_name_mapping, load_model_and_tokenizer, load_auth_token
 from finetune_datasets.trump_tweets import TrumpTweetsDataset
 from finetune_datasets.chat_logs import ChatDataset
     
@@ -14,7 +14,7 @@ from finetune_datasets.chat_logs import ChatDataset
 def main():
     warnings.filterwarnings("ignore", message="torch.utils.checkpoint: the use_reentrant parameter")
 
-    verify_gpu()
+    show_gpu_specs()
 
     torch.backends.cudnn.benchmark = True
     torch.cuda.empty_cache()
@@ -41,7 +41,7 @@ def main():
     # Print the number of trainable parameters
     model.print_trainable_parameters()
     
-    csv_file_path = r"C:\Users\joshf\smolLm\Cerver - D2 and Chill - chamber-of [994776397824409652].csv"
+    csv_file_path = "message_histories/Cerver.csv"
     
     name_mapping_path = "name_mapping.txt"
     

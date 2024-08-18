@@ -110,7 +110,7 @@ def load_filter_words(file_path: str):
         return filter_patterns
         
     except Exception as e:
-        print(f"Error loading filter patterns: {e}")
+        print(f"Warning: could not load filter patterns: {e}")
         print("Continuing without filter patterns")
         return []
 
@@ -124,7 +124,7 @@ def load_auth_token(file_path: str) -> str:
 
 
 
-async def generate_response(
+async def async_generate_response(
     model: PreTrainedModel, 
     tokenizer: PreTrainedTokenizer, 
     prompt: str,
@@ -174,7 +174,7 @@ async def generate_response(
 
 
 
-async def clean_message(message: str) -> str:
+async def async_clean_message(message: str) -> str:
     # Remove attachments
     message = re.sub(r'\[Attachment:.*?\]', '', message)
     
@@ -186,13 +186,15 @@ async def clean_message(message: str) -> str:
     
     return message.strip()
 
-async def redact_text(text: str, filter_patterns: List) -> str:
+
+
+async def async_redact_text(text: str, filter_patterns: List) -> str:
     for pattern in filter_patterns:
         text = pattern.sub('[REDACTED]', text)
     return text
 
-# TODO rename this to show_gpu_specs
-async def verify_gpu():
+
+def show_gpu_specs():
     if torch.cuda.is_available():
         print(f"CUDA is available. Using GPU: {torch.cuda.get_device_name(0)}")
         print(f"Number of GPUs: {torch.cuda.device_count()}")

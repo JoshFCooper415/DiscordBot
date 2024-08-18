@@ -5,7 +5,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationMixin, P
 from typing import List
 import asyncio
 
-from utils import load_model_and_tokenizer, generate_response, redact_text, load_auth_token
+from utils import load_model_and_tokenizer, async_generate_response, async_redact_text, load_auth_token
 
 os.environ["TOKENIZERS_PARALLELISM"] = "False"
 
@@ -60,7 +60,7 @@ async def main():
             break
         
         full_prompt = f"Human: {user_input}\n\nAssistant:"
-        response = await generate_response(
+        response = await async_generate_response(
             model = model, 
             tokenizer = tokenizer, 
             prompt = full_prompt, 
