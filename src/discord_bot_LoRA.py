@@ -44,7 +44,7 @@ class InferenceBot(commands.Bot):
         self.filter_patterns = load_filter_words(filter_words_file_path)
     
     async def on_ready(self):
-        # await self.download_guild_message_history(self.guilds[2])
+        await self.download_guild_message_history(self.guilds[2])
         
         print(f'{self.user} has connected to Discord!')
         print(f'Guild permissions: {self.guilds[0].me.guild_permissions.value if self.guilds else "Not in any guild"}')
@@ -130,8 +130,17 @@ class InferenceBot(commands.Bot):
             for channel in category.channels:
                 if channel.permissions_for(guild.me).view_channel:
                     channel_list.append(self.get_channel(channel.id))
-                    
-        async with aiofiles.open(f"message_histories/{guild.name}.csv", "w") as csv_file:
+        
+        guild_message_history_path = f"message_histories/{guild.name}.csv"
+        
+        # make sure that the directory exists
+        dir_to_make = os.path.dirname(guild_message_history_path)
+
+        if dir_to_make != "":
+            await asyncio.to_thread(os.makedirs, name=dir_to_make, exist_ok=True)
+
+        
+        async with aiofiles.open(guild_message_history_path, "w") as csv_file:
             csv_writer = AsyncWriter(csv_file)
             
             await csv_writer.writerow(["Author","Content"])
@@ -140,7 +149,6 @@ class InferenceBot(commands.Bot):
                     if not message.content: continue
                     
                     await csv_writer.writerow([message.author, message.content])
-
 
 
 
