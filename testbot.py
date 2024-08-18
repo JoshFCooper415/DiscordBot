@@ -3,7 +3,6 @@ from discord.ext import commands
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel, PeftConfig
-import os
 import asyncio
 import re
 import datetime

@@ -5,71 +5,19 @@ from torch.utils.data import Dataset
 from torch.cuda.amp import autocast
 import os
 import csv
-import re
+
+from src.utils import clean_message
+
 from typing import List, Dict
 
-def load_name_mapping(file_path: str) -> Dict[str, str]:
-    name_mapping = {}
-    with open(file_path, 'r', encoding='utf-8') as file:
-        for line_number, line in enumerate(file, 1):
-            line = line.strip()
-            if not line or line.startswith('#'):  # Skip empty lines and comments
-                continue
-            try:
-                aliases, real_name = line.split(':', 1)
-            except ValueError:
-                print(f"Error on line {line_number}: '{line}'. Each line should contain aliases and a real name separated by a colon (:).")
-                continue
+from src.utils import load_name_mapping, load_model_and_tokenizer
 
-            real_name = real_name.strip()
-            if not real_name:
-                print(f"Warning on line {line_number}: No real name provided for aliases '{aliases}'. Skipping this line.")
-                continue
-
-            for alias in aliases.split(','):
-                alias = alias.strip().lower()
-                if alias:
-                    name_mapping[alias] = real_name
-                else:
-                    print(f"Warning on line {line_number}: Empty alias found. Skipping this alias.")
-
-    if not name_mapping:
-        raise ValueError("No valid name mappings found in the file. Please check the format of your name_mapping.txt file.")
-
-    return name_mapping
-
-def load_model_and_tokenizer(model_path, tokenizer_name):
-    print(f"Loading model from local path: {model_path}")
-    print(f"Loading tokenizer: {tokenizer_name}")
-    
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-    model = AutoModelForCausalLM.from_pretrained(model_path)
-    
-    # Set the pad token to be the same as the EOS token if it's not set
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-        print("Pad token set to EOS token:", tokenizer.pad_token)
-    
-    print("Model and tokenizer loaded.")
-    
-    return model, tokenizer
 
 def read_chat_log(file_path: str) -> List[Dict]:
     with open(file_path, 'r', encoding='utf-8') as file:
         reader = csv.DictReader(file)
         return list(reader)
 
-def clean_message(message: str) -> str:
-    # Remove attachments
-    message = re.sub(r'\[Attachment:.*?\]', '', message)
-    
-    # Remove links (this regex matches common URL patterns)
-    message = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '', message)
-    
-    # Remove extra whitespace
-    message = ' '.join(message.split())
-    
-    return message.strip()
 
 def convert_to_conversation_pairs(chat_log: List[Dict], name_mapping: Dict[str, str]) -> List[Dict]:
     conversation_pairs = []
