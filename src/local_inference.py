@@ -5,13 +5,14 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationMixin, P
 from typing import List
 import asyncio
 
-from utils import load_model_and_tokenizer, generate_response, redact_text
+from utils import load_model_and_tokenizer, generate_response, redact_text, load_auth_token
 
 os.environ["TOKENIZERS_PARALLELISM"] = "False"
 
 
 # Constants
-ORIGINAL_MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+ORIGINAL_MODEL_NAME = "google/gemma-2-2b-it"
+# ORIGINAL_MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 # FINETUNED_MODEL_PATH = "C:/Users/joshf/smolLm/longcustom_finetuned_results/checkpoint-3000"  # Adjust this path as needed
 MAX_LENGTH = 20
 TEMPERATURE = 0.7
@@ -43,7 +44,9 @@ TOP_P = 0.9
 
 
 async def main():
-    model, tokenizer = load_model_and_tokenizer(ORIGINAL_MODEL_NAME, QuantoConfig(weights="int4"))
+    hugging_face_auth_token = load_auth_token("hugging_face_auth_token.txt")
+    model, tokenizer = load_model_and_tokenizer(ORIGINAL_MODEL_NAME, QuantoConfig(weights="int4"), hugging_face_auth_token)
+    
     if model is None or tokenizer is None:
         print("Failed to load model or tokenizer. Exiting.")
         return

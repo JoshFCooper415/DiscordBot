@@ -7,7 +7,7 @@ import asyncio
 import datetime
 import os
 
-from utils import load_model_and_tokenizer, load_name_mapping, load_filter_words, load_api_key, load_lora_adapter_from_base_model, redact_text, generate_response
+from utils import load_model_and_tokenizer, load_name_mapping, load_filter_words, load_auth_token, load_lora_adapter_from_base_model, redact_text, generate_response
 
 
 os.environ["TOKENIZERS_PARALLELISM"] = "False"
@@ -18,7 +18,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "False"
 BASE_MODEL_PATH = "HuggingFaceTB/SmolLM-135M-Instruct"
 LORA_ADAPTERS_PATH = None
 NAME_MAPPING_PATH = "name_mapping.txt"
-API_KEY_PATH = "key.txt"
+DISCORD_BOT_AUTH_TOKEN_PATH = "discord_bot_auth_token.txt"
 FILTER_WORDS_PATH = "filter.txt"
 QUANTIZATION_CONFIG = QuantoConfig(weights="int4")
 
@@ -169,12 +169,12 @@ def main():
     # bot.load_name_mapping(name_mapping_path)
     # bot.load_filter_words(filter_words_path)
 
-    api_key = load_api_key(API_KEY_PATH)
-    if api_key is None:
-        print("Failed to load API key. Exiting.")
+    discord_bot_auth_token = load_auth_token(DISCORD_BOT_AUTH_TOKEN_PATH)
+    if discord_bot_auth_token is None:
+        print("Failed to load discord bot auth token. Exiting.")
         return
 
-    asyncio.run(bot.start(api_key))
+    asyncio.run(bot.start(discord_bot_auth_token))
 
 
 if __name__ == "__main__":

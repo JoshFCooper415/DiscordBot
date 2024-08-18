@@ -1,56 +1,52 @@
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, QuantoConfig, PreTrainedTokenizer, PreTrainedModel
 
-from peft import PeftModel, PeftConfig
+from peft import PeftModel
 import traceback
 import re
 
 from typing import Dict, Tuple, List
 
-def load_model_and_tokenizer(base_model_path: str, quantization_config: QuantoConfig = None) -> Tuple[PreTrainedModel, PreTrainedTokenizer]:
+
+# TODO add options for using bits and bytes quantization
+def load_model_and_tokenizer(base_model_path: str, quantization_config: QuantoConfig = None, hugging_face_auth_token: str = None) -> Tuple[PreTrainedModel, PreTrainedTokenizer]:
     print(f"Loading tokenizer from {base_model_path}")
     
-    try:
-        # Load tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(base_model_path)
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-            print("Pad token set to EOS token: ", tokenizer.pad_token)
-        print("Tokenizer loaded successfully")
-        
-        # Check CUDA availability
-        if torch.cuda.is_available():
-            print("CUDA is available. Using GPU.")
-            device = torch.device("cuda")
-        else:
-            print("CUDA is not available. Using CPU.")
-            device = torch.device("cpu")
-        
-        # Load the base model
-        print("Loading base model...")
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name_or_path = base_model_path,
-            quantization_config = quantization_config,
-            # torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        )
-        
-        # Move model to the appropriate device
-        model = model.to(device)
-        print(f"Model moved to {device}")
-        print("Base model loaded successfully")
-        
-        print("Model and tokenizer loaded successfully")
-        return model, tokenizer
-
-    except Exception as e:
-        print(f"Error loading model or tokenizer: {e}")
-        traceback.print_exc()
-        raise
+    # Load tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(base_model_path, token = hugging_face_auth_token)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        print("Pad token set to EOS token: ", tokenizer.pad_token)
+    print("Tokenizer loaded successfully")
+    
+    # Check CUDA availability
+    if torch.cuda.is_available():
+        print("CUDA is available. Using GPU.")
+        device = torch.device("cuda")
+    else:
+        print("CUDA is not available. Using CPU.")
+        device = torch.device("cpu")
+    
+    # Load the base model
+    print("Loading base model...")
+    model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
+        pretrained_model_name_or_path = base_model_path,
+        token = hugging_face_auth_token,
+        quantization_config = quantization_config,
+        # torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+    )
+    
+    # Move model to the appropriate device
+    model = model.to(device)
+    print(f"Model moved to {device}")
+    print("Base model loaded successfully")
+    
+    print("Model and tokenizer loaded successfully")
+    return model, tokenizer
     
     
     
-    
-def load_lora_adapter_from_base_model(base_model: AutoModelForCausalLM, lora_path: str):
+def load_lora_adapter_from_base_model(base_model: PreTrainedModel, lora_path: str):
     try:
         # Load the LoRA model
         print("Applying LoRA adapters...")
@@ -63,7 +59,6 @@ def load_lora_adapter_from_base_model(base_model: AutoModelForCausalLM, lora_pat
         print(f"Error loading lora adapters: {e}")
         traceback.print_exc()
         raise
-
 
 
 def load_name_mapping(file_path: str) -> Dict[str, str]:
@@ -120,12 +115,12 @@ def load_filter_words(file_path: str):
         print("Continuing without filter patterns")
         return []
 
-def load_api_key(file_path: str) -> str:
+def load_auth_token(file_path: str) -> str:
     try:
         with open(file_path, 'r') as file:
             return file.read().strip()
     except Exception as e:
-        print(f"Error loading API key: {e}")
+        print(f"Error loading key: {e}")
         return None
 
 

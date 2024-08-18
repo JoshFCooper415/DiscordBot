@@ -1,78 +1,15 @@
 import warnings
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer
-from torch.utils.data import Dataset, ConcatDataset
+from transformers import TrainingArguments, Trainer
+from torch.utils.data import ConcatDataset
 from datasets import load_dataset  # Add this import
-import csv
-import re
-from typing import List, Dict
-from transformers import BitsAndBytesConfig
 from peft import prepare_model_for_kbit_training, LoraConfig, get_peft_model
 
-from utils import verify_gpu, load_name_mapping, clean_message
+from utils import verify_gpu, load_name_mapping, load_model_and_tokenizer, load_auth_token
 from finetune_datasets.trump_tweets import TrumpTweetsDataset
 from finetune_datasets.chat_logs import ChatDataset
-
-
-def load_model_and_tokenizer(model_name, auth_token):
-    print(f"Loading model and tokenizer: {model_name}")
     
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=auth_token)
-    print("Tokenizer loaded.")
     
-    # Configure 4-bit quantization
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.float16
-    )
-    
-    # Check for CUDA availability
-    device_map = "auto" if torch.cuda.is_available() else None
-    
-    print("Loading model...")
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name, 
-        use_auth_token=auth_token,
-        quantization_config=quantization_config,
-        device_map=device_map,
-        trust_remote_code=True
-    )
-    print("Base model loaded.")
-    
-    # Prepare the model for k-bit training
-    print("Preparing model for k-bit training...")
-    model = prepare_model_for_kbit_training(model)
-    
-    # Define LoRA Config
-    lora_config = LoraConfig(
-        r=8,
-        lora_alpha=32,
-        target_modules=["q_proj", "v_proj"],
-        lora_dropout=0.05,
-        bias="none",
-        task_type="CAUSAL_LM"
-    )
-    
-    # Add LoRA adapters
-    print("Adding LoRA adapters...")
-    model = get_peft_model(model, lora_config)
-    
-    # Set the pad token to be the same as the EOS token if it's not set
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-        print("Pad token set to EOS token:", tokenizer.pad_token)
-    
-    print("Model and tokenizer loaded with 4-bit quantization and LoRA adapters.")
-    
-    return model, tokenizer
-
-
-
-
-
-def load_auth_token(file_path: str) -> str:
-    with open(file_path, 'r') as file:
-        return file.read().strip()
     
 def main():
     warnings.filterwarnings("ignore", message="torch.utils.checkpoint: the use_reentrant parameter")
@@ -82,11 +19,24 @@ def main():
     torch.backends.cudnn.benchmark = True
     torch.cuda.empty_cache()
 
-    model_name = "google/gemma-2-9b-it"  # Using the smaller 2B model
-    auth_token = load_auth_token("key2.txt")
+    model_name = "google/gemma-2-2b-it"  # Using the smaller 2B model
+    hugging_face_auth_token = load_auth_token("hugging_face_auth_token.txt")
     
     print("Starting to load model and tokenizer...")
-    model, tokenizer = load_model_and_tokenizer(model_name, auth_token)
+    
+    lora_config = LoraConfig(
+        r=8,
+        lora_alpha=32,
+        target_modules=["q_proj", "v_proj"],
+        lora_dropout=0.05,
+        bias="none",
+        task_type="CAUSAL_LM"
+    )
+    
+    model, tokenizer = load_model_and_tokenizer(model_name, hugging_face_auth_token=hugging_face_auth_token)
+    model = prepare_model_for_kbit_training(model)
+    model = get_peft_model(model, lora_config)
+    
     
     # Print the number of trainable parameters
     model.print_trainable_parameters()
@@ -94,6 +44,7 @@ def main():
     csv_file_path = r"C:\Users\joshf\smolLm\Cerver - D2 and Chill - chamber-of [994776397824409652].csv"
     
     name_mapping_path = "name_mapping.txt"
+    
     try:
         print("Loading name mapping...")
         name_mapping = load_name_mapping(name_mapping_path)
@@ -145,8 +96,8 @@ def main():
         raise
 
     print("Saving LoRA adapters...")
-    model.save_pretrained("./gemma_finetuned_lora-9b")
-    tokenizer.save_pretrained("./gemma_finetuned_lora-9b")
+    model.save_pretrained("./gemma_finetuned_lora-2b")
+    tokenizer.save_pretrained("./gemma_finetuned_lora-2b")
     print("Training completed and LoRA adapters saved.")
 
 if __name__ == "__main__":
