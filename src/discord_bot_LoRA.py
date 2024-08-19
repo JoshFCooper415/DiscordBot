@@ -21,14 +21,16 @@ from utils import async_redact_text, async_generate_response
 os.environ["TOKENIZERS_PARALLELISM"] = "False"
 
 
-# BASE_MODEL_PATH = "google/gemma-2-9b-it"  # Path to the base model
+BASE_MODEL_PATH = "google/gemma-2-2b-it"  # Path to the base model
 # LORA_ADAPTERS_PATH = "./gemma_finetuned_lora-9b"# Path to the LoRA adapters
-BASE_MODEL_PATH = "HuggingFaceTB/SmolLM-135M-Instruct"
+# BASE_MODEL_PATH = "HuggingFaceTB/SmolLM-135M-Instruct"
 LORA_ADAPTERS_PATH = None
 NAME_MAPPING_PATH = "name_mapping.txt"
 DISCORD_BOT_AUTH_TOKEN_PATH = "discord_bot_auth_token.txt"
 FILTER_WORDS_PATH = "filter.txt"
-QUANTIZATION_CONFIG = QuantoConfig(weights="int4")
+QUANTIZATION_CONFIG = QuantoConfig(weights="float8")
+
+NUMBER_OF_MESSAGES_IN_CONTEXT_WINDOW = 3
 
 
 class InferenceBot(commands.Bot):
@@ -44,6 +46,7 @@ class InferenceBot(commands.Bot):
         self.model, self.tokenizer = load_model_and_tokenizer(model_path, quantization_config)
         if lora_adapter_path:
             self.model = load_lora_adapter_from_base_model(self.model, lora_adapter_path)
+            
         self.name_mapping = load_name_mapping(name_mapping_file_path)
         self.filter_patterns = load_filter_words(filter_words_file_path)
     
@@ -78,9 +81,14 @@ class InferenceBot(commands.Bot):
             user_name = self.name_mapping.get(message.author.name.lower(), message.author.name)
             
             # Create the simple role-play instruction
-            system_prompt = f"You are now role-playing as {real_target_name}. Respond as {real_target_name} would."
-            # role_play_instruction = f"You are now role-playing as {real_target_name}. Respond as {real_target_name} would."
+            past_n_messages = await self.get_past_n_messages_in_channel(message.channel, 10)
+            context = ""
+            for message in past_n_messages:
+                context += (message.content + "\n")
+            
+            system_prompt = f"The following is a snippit of the current conversation:\n {context} You are now role-playing as {real_target_name}. Respond as {real_target_name} would."
 
+            print(f"system_prompt: {system_prompt}")
             prompt = f"{system_prompt}\n\n{user_name}: {content}\n{real_target_name}:"
             
             try:
@@ -93,7 +101,7 @@ class InferenceBot(commands.Bot):
                 
                 # Send each chunk as a separate message
                 for chunk in chunks:
-                    await message.channel.send(f"{real_target_name}: {chunk}")
+                    await message.channel.send(f"{real_target_name}-bot: {chunk}")
                 
                 # Log both unredacted and redacted responses
                 await self.log_response(user_name, real_target_name, content, unredacted_response, redacted_response)
@@ -121,7 +129,6 @@ class InferenceBot(commands.Bot):
 
     async def get_past_n_messages_in_channel(self, channel: discord.TextChannel, number_of_past_messages: int) -> List[discord.Message]:
         return [message async for message in channel.history(limit=number_of_past_messages)]
-
         
     
     # TODO maybe in the future we would want to make this into a database so retrieval per person is faster

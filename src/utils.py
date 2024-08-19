@@ -33,12 +33,13 @@ def load_model_and_tokenizer(base_model_path: str, quantization_config: QuantoCo
         pretrained_model_name_or_path = base_model_path,
         token = hugging_face_auth_token,
         quantization_config = quantization_config,
-        # torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        torch_dtype=torch.float32,
+        device_map="auto"
     )
     
-    # Move model to the appropriate device
-    model = model.to(device)
-    print(f"Model moved to {device}")
+    # # Move model to the appropriate device
+    # model = model.to(device)
+    # print(f"Model moved to {device}")
     print("Base model loaded successfully")
     
     return model, tokenizer
