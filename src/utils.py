@@ -124,6 +124,27 @@ def load_auth_token(file_path: str) -> str:
 
 
 
+# def generate_response(model: GenerationMixin, tokenizer: PreTrainedTokenizer, prompt: str, max_tokens: int, temperature: float, top_p: float):
+#     inputs = tokenizer.encode(prompt, return_tensors="pt")
+#     if torch.cuda.is_available():
+#         inputs = inputs.to("cuda")
+#     # input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
+    
+#     with torch.no_grad():
+#         outputs = model.generate(
+#             inputs,
+#             max_new_tokens=max_tokens,
+#             temperature=temperature,
+#             top_p=top_p,
+#             do_sample=True,
+#             pad_token_id=tokenizer.eos_token_id
+#         )
+    
+#     response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+#     return response.split("Assistant:", 1)[-1].strip()
+
+
+
 async def async_generate_response(
     model: PreTrainedModel, 
     tokenizer: PreTrainedTokenizer, 
@@ -153,9 +174,10 @@ async def async_generate_response(
             
             generated_ids = torch.cat([generated_ids, next_token_id], dim=-1)
             
-            if next_token_id.item() == eos_token_id or next_token_id.item() == newline_token_id:
+            # if next_token_id.item() == eos_token_id or next_token_id.item() == newline_token_id:
+            #     break
+            if next_token_id.item() == eos_token_id:
                 break
-    
             
     response = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
     response = response.split(prompt)[-1].strip()  # Remove the prompt from the response
@@ -183,6 +205,12 @@ async def async_clean_message(message: str) -> str:
     
     # Remove extra whitespace
     message = ' '.join(message.split())
+    
+    # TODO also remove code snippits from the message that are using ``` and `
+    
+    # TODO also remove pings which are denoted like <@big number>
+    
+    # TODO also turn emojis into a token the model can actually understand (Im pretty sure the emojis aren't in its vocab)
     
     return message.strip()
 

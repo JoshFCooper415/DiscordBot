@@ -131,24 +131,25 @@ class InferenceBot(commands.Bot):
                 if channel.permissions_for(guild.me).view_channel:
                     channel_list.append(self.get_channel(channel.id))
         
-        guild_message_history_path = f"message_histories/{guild.name}.csv"
+        guild_history_path = f"message_histories/{guild.name}/"
         
         # make sure that the directory exists
-        dir_to_make = os.path.dirname(guild_message_history_path)
-
+        dir_to_make = os.path.dirname(guild_history_path)
         if dir_to_make != "":
             await asyncio.to_thread(os.makedirs, name=dir_to_make, exist_ok=True)
 
-        
-        async with aiofiles.open(guild_message_history_path, "w") as csv_file:
-            csv_writer = AsyncWriter(csv_file)
-            
-            await csv_writer.writerow(["Author","Content"])
-            for channel in channel_list:
+        for channel in channel_list:
+            async with aiofiles.open(f"{guild_history_path}/{channel.name}.csv", "w") as csv_file:
+                csv_writer = AsyncWriter(csv_file)
+                
+                await csv_writer.writerow(["Author","Content"])
+                    
                 async for message in channel.history(limit=None):
                     if not message.content: continue
                     
-                    await csv_writer.writerow([message.author, message.content])
+                    content = message.content.replace("\n", " ")
+                    
+                    await csv_writer.writerow([message.author, content])
 
 
 
