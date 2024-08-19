@@ -18,12 +18,12 @@ ORIGINAL_MODEL_NAME = "google/gemma-2-2b-it"
 MAX_LENGTH = 2048
 TEMPERATURE = 0.7
 TOP_P = 0.9
-QUANTIZATION = QuantoConfig(weights="int4")
+QUANTIZATION_CONFIG = QuantoConfig(weights="int4")
 
 
 async def main():
     hugging_face_auth_token = load_auth_token("hugging_face_auth_token.txt")
-    model, tokenizer = load_model_and_tokenizer(ORIGINAL_MODEL_NAME, QUANTIZATION, hugging_face_auth_token)
+    model, tokenizer = load_model_and_tokenizer(ORIGINAL_MODEL_NAME, QUANTIZATION_CONFIG, hugging_face_auth_token)
     
     if model is None or tokenizer is None:
         print("Failed to load model or tokenizer. Exiting.")

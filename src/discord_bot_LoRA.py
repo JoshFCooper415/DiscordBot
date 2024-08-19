@@ -1,11 +1,15 @@
 import discord
 from discord.ext import commands
+from discord.utils import time_snowflake
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, PreTrainedTokenizer, QuantoConfig
 
 import asyncio
-import datetime
+from datetime import datetime
 import os
+import os.path
+
+
 from aiocsv import AsyncWriter
 import aiofiles
 import pandas as pd
@@ -44,7 +48,7 @@ class InferenceBot(commands.Bot):
         self.filter_patterns = load_filter_words(filter_words_file_path)
     
     async def on_ready(self):
-        await self.download_guild_message_history(self.guilds[2])
+        await self.download_and_update_guild_message_history(self.guilds[2])
         
         print(f'{self.user} has connected to Discord!')
         print(f'Guild permissions: {self.guilds[0].me.guild_permissions.value if self.guilds else "Not in any guild"}')
@@ -120,16 +124,9 @@ class InferenceBot(commands.Bot):
 
         
     
-    
-    # TODO if we need this to be fast in the future, keep track of a database of all of the messages in the server and the last time we updated the database, 
-    # update the database with the new messages in the history that happen after the last updated time and then read the database for all of the user's messages
+    # TODO maybe in the future we would want to make this into a database so retrieval per person is faster
     # TODO potentially also shorten this method to just return a pandas dataframe or something and the user can decide whether or not they want to save it to a csv
-    async def download_guild_message_history(self, guild: discord.Guild):
-        channel_list: List[discord.TextChannel] = []
-        for category in guild.categories:
-            for channel in category.channels:
-                if channel.permissions_for(guild.me).view_channel:
-                    channel_list.append(self.get_channel(channel.id))
+    async def download_and_update_guild_message_history(self, guild: discord.Guild):
         
         guild_history_path = f"message_histories/{guild.name}/"
         
@@ -137,20 +134,46 @@ class InferenceBot(commands.Bot):
         dir_to_make = os.path.dirname(guild_history_path)
         if dir_to_make != "":
             await asyncio.to_thread(os.makedirs, name=dir_to_make, exist_ok=True)
+            
+          
+        # Keep track of the last time we have updated the message history so we don't have the redownload old messages everytime
+        if not os.path.isfile(f"{guild_history_path}/last_updated.txt"):
+            open(f"{guild_history_path}/last_updated.txt", "x")
+
+        with open(f"{guild_history_path}/last_updated.txt", "r", encoding="utf-8") as file:
+            last_time_message_history_was_updated_str = file.readline()
+            
+            if last_time_message_history_was_updated_str != "":
+                print(last_time_message_history_was_updated_str)
+                last_time_message_history_was_updated = datetime.strptime(last_time_message_history_was_updated_str, '%y-%m-%d %H:%M:%S')
+            else:
+                last_time_message_history_was_updated = None
+
+        with open(f"{guild_history_path}/last_updated.txt", "w", encoding="utf-8") as file:
+            file.write(str(datetime.now().strftime('%y-%m-%d %H:%M:%S')))
+            
+            
+            
+        channel_list: List[discord.TextChannel] = []
+        for category in guild.categories:
+            for channel in category.channels:
+                if channel.permissions_for(guild.me).view_channel:
+                    channel_list.append(self.get_channel(channel.id))
+
 
         for channel in channel_list:
             async with aiofiles.open(f"{guild_history_path}/{channel.name}.csv", "w") as csv_file:
                 csv_writer = AsyncWriter(csv_file)
                 
+                print(f"updating: {channel.name}")
                 await csv_writer.writerow(["Author","Content"])
-                    
-                async for message in channel.history(limit=None):
+                
+                async for message in channel.history(limit=None, after=last_time_message_history_was_updated):
                     if not message.content: continue
                     
                     content = message.content.replace("\n", " ")
                     
                     await csv_writer.writerow([message.author, content])
-
 
 
 
