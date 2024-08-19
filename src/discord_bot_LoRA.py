@@ -144,7 +144,9 @@ class InferenceBot(commands.Bot):
             
           
         # Keep track of the last time we have updated the message history so we don't have the redownload old messages everytime
-        if not os.path.isfile(f"{guild_history_path}/last_updated.txt"):
+        have_message_histories_been_created = os.path.isfile(f"{guild_history_path}/last_updated.txt")
+        
+        if not have_message_histories_been_created:
             open(f"{guild_history_path}/last_updated.txt", "x")
 
         with open(f"{guild_history_path}/last_updated.txt", "r", encoding="utf-8") as file:
@@ -169,11 +171,13 @@ class InferenceBot(commands.Bot):
 
 
         for channel in channel_list:
-            async with aiofiles.open(f"{guild_history_path}/{channel.name}.csv", "w") as csv_file:
+            async with aiofiles.open(f"{guild_history_path}/{channel.name}.csv", "a") as csv_file:
                 csv_writer = AsyncWriter(csv_file)
                 
                 print(f"updating: {channel.name}")
-                await csv_writer.writerow(["Author","Content"])
+                
+                if not have_message_histories_been_created:
+                    await csv_writer.writerow(["Author","Content"])
                 
                 async for message in channel.history(limit=None, after=last_time_message_history_was_updated):
                     if not message.content: continue
