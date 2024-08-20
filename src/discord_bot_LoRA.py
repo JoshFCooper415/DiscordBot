@@ -93,7 +93,7 @@ class InferenceBot(commands.Bot):
 
             print(f"system_prompt: {system_prompt}")
             prompt = f"{system_prompt}\n\n{user_name}: {content}\n{real_target_name}:"
-            
+                        
             try:
                 async with message.channel.typing():
                     unredacted_response = await async_generate_response(self.model, self.tokenizer, prompt)

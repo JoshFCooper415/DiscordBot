@@ -9,7 +9,7 @@ from utils import show_gpu_specs, load_name_mapping, load_model_and_tokenizer, l
 from finetune_datasets.trump_tweets import TrumpTweetsDataset
 from finetune_datasets.chat_logs import ChatDataset
     
-    
+
     
 def main():
     warnings.filterwarnings("ignore", message="torch.utils.checkpoint: the use_reentrant parameter")
@@ -27,7 +27,7 @@ def main():
     lora_config = LoraConfig(
         r=8,
         lora_alpha=32,
-        target_modules=["q_proj", "v_proj"],
+        target_modules=["gate_proj", "down_proj", "up_proj", "q_proj", "v_proj", "k_proj", "o_proj"],
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM"
