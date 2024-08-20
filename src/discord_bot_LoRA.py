@@ -51,7 +51,8 @@ class InferenceBot(commands.Bot):
         self.filter_patterns = load_filter_words(filter_words_file_path)
     
     async def on_ready(self):
-        await self.download_and_update_guild_message_history(self.guilds[2])
+        for guild in self.guilds:
+            await self.download_and_update_guild_message_history(guild)
         
         print(f'{self.user} has connected to Discord!')
         print(f'Guild permissions: {self.guilds[0].me.guild_permissions.value if self.guilds else "Not in any guild"}')
@@ -69,6 +70,7 @@ class InferenceBot(commands.Bot):
 
     async def handle_command(self, message: discord.Message):
         parts = message.content[1:].split(maxsplit=1)
+        
         if len(parts) == 2:
             target_name, content = parts
             target_name = target_name.lower()
@@ -112,9 +114,20 @@ class InferenceBot(commands.Bot):
                 print(f"Error: Bot doesn't have permission to send messages in {message.channel}")
             except Exception as e:
                 print(f"An error occurred while processing the message: {e}")
+        
+        
+        elif parts[0] == "update":
+            updating_db_message_coroutine = message.channel.send("Updating the database for finetuning the model. This may take a while")
+            
+            await self.download_and_update_guild_message_history(message.guild)
+            
+            await updating_db_message_coroutine
+            await message.channel.send("Finished updating the database for finetuning the model")
+
+            
         else:
             try:
-                await message.channel.send("Please use the format: !username message")
+                await message.channel.send("Please use the format: !<username> <message> or !update")
             except discord.errors.Forbidden:
                 print(f"Error: Bot doesn't have permission to send messages in {message.channel}")
             except Exception as e:
@@ -122,7 +135,7 @@ class InferenceBot(commands.Bot):
 
     
     async def log_response(self, user_name: str, target_name: str, content: str, unredacted_response: str, redacted_response: str):
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_entry = f"[{timestamp}] {user_name} to {target_name}: {content}\n"
         log_entry += f"{target_name}-bot (Unredacted): {unredacted_response}\n"
         log_entry += f"{target_name}-bot (Redacted): {redacted_response}\n\n"
