@@ -30,7 +30,7 @@ DISCORD_BOT_AUTH_TOKEN_PATH = "discord_bot_auth_token.txt"
 FILTER_WORDS_PATH = "filter.txt"
 QUANTIZATION_CONFIG = QuantoConfig(weights="float8")
 
-NUMBER_OF_MESSAGES_IN_CONTEXT_WINDOW = 3
+NUMBER_OF_MESSAGES_IN_CONTEXT_WINDOW = 0
 
 
 class InferenceBot(commands.Bot):
@@ -81,12 +81,15 @@ class InferenceBot(commands.Bot):
             user_name = self.name_mapping.get(message.author.name.lower(), message.author.name)
             
             # Create the simple role-play instruction
-            past_n_messages = await self.get_past_n_messages_in_channel(message.channel, 10)
+            past_n_messages = await self.get_past_n_messages_in_channel(message.channel, NUMBER_OF_MESSAGES_IN_CONTEXT_WINDOW)
             context = ""
             for message in past_n_messages:
                 context += (message.content + "\n")
             
-            system_prompt = f"The following is a snippit of the current conversation:\n {context} You are now role-playing as {real_target_name}. Respond as {real_target_name} would."
+            if NUMBER_OF_MESSAGES_IN_CONTEXT_WINDOW > 0:
+                system_prompt = f"The following is a snippit of the current conversation:\n {context}"
+                
+            system_prompt += f"You are now role-playing as {real_target_name}. Respond as {real_target_name} would."
 
             print(f"system_prompt: {system_prompt}")
             prompt = f"{system_prompt}\n\n{user_name}: {content}\n{real_target_name}:"
