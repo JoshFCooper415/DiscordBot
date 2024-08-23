@@ -1,7 +1,7 @@
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, QuantoConfig, PreTrainedTokenizer, PreTrainedModel
 
-from peft import PeftModel
+from peft import PeftModel, PeftConfig
 import traceback
 import re
 
@@ -29,11 +29,10 @@ def load_model_and_tokenizer(base_model_path: str, quantization_config: QuantoCo
     
     # Load the base model
     print("Loading base model...")
-    model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
-        pretrained_model_name_or_path = base_model_path,
-        token = hugging_face_auth_token,
-        quantization_config = quantization_config,
-        torch_dtype=torch.float32,
+    model = AutoModelForCausalLM.from_pretrained(
+        base_model_path,
+         token=hugging_face_auth_token,
+        torch_dtype=torch.float16,
         device_map="auto"
     )
     
@@ -48,8 +47,10 @@ def load_model_and_tokenizer(base_model_path: str, quantization_config: QuantoCo
     
 def load_lora_adapter_from_base_model(base_model: PreTrainedModel, lora_path: str):
     try:
+        
         # Load the LoRA model
         print("Applying LoRA adapters...")
+        peft_config = PeftConfig.from_pretrained(lora_path)
         lora_model = PeftModel.from_pretrained(base_model, lora_path)
         print("LoRA adapters applied successfully")
 

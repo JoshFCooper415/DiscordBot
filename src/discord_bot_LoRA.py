@@ -14,21 +14,22 @@ from aiocsv import AsyncWriter
 import aiofiles
 import pandas as pd
 from typing import List, Dict
-
+import quanto
 from utils import load_model_and_tokenizer, load_name_mapping, load_filter_words, load_auth_token, load_lora_adapter_from_base_model
 from utils import async_redact_text, async_generate_response
 
 os.environ["TOKENIZERS_PARALLELISM"] = "False"
 
 
-BASE_MODEL_PATH = "google/gemma-2-2b-it"  # Path to the base model
+BASE_MODEL_PATH = "google/gemma-2b"  # Path to the base model
 # LORA_ADAPTERS_PATH = "./gemma_finetuned_lora-9b"# Path to the LoRA adapters
 # BASE_MODEL_PATH = "HuggingFaceTB/SmolLM-135M-Instruct"
-LORA_ADAPTERS_PATH = None
+LORA_ADAPTERS_PATH = r"C:\Users\joshf\smolLm\gemma_finetuned_lora"
 NAME_MAPPING_PATH = "name_mapping.txt"
 DISCORD_BOT_AUTH_TOKEN_PATH = "discord_bot_auth_token.txt"
 FILTER_WORDS_PATH = "filter.txt"
 QUANTIZATION_CONFIG = QuantoConfig(weights="float8")
+HF_token_file = "key2.txt"
 
 NUMBER_OF_MESSAGES_IN_CONTEXT_WINDOW = 0
 
@@ -43,10 +44,15 @@ class InferenceBot(commands.Bot):
         super().__init__(command_prefix='!', intents=intents, permissions=discord.Permissions(3072))
         
         # TODO Make model and tokenizer and stuff have actual type hints
-        self.model, self.tokenizer = load_model_and_tokenizer(model_path, quantization_config)
+        HF_Token = load_auth_token(HF_token_file)
+        self.model, self.tokenizer = load_model_and_tokenizer(model_path, quantization_config,HF_Token)
         if lora_adapter_path:
             self.model = load_lora_adapter_from_base_model(self.model, lora_adapter_path)
             
+        #quantize on load    
+        self.model = quanto.quantize(self.model,QUANTIZATION_CONFIG)
+
+
         self.name_mapping = load_name_mapping(name_mapping_file_path)
         self.filter_patterns = load_filter_words(filter_words_file_path)
     
