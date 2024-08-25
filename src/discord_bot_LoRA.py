@@ -8,6 +8,7 @@ import asyncio
 from datetime import datetime
 import os
 import os.path
+import json, csv
 
 
 from aiocsv import AsyncWriter
@@ -19,17 +20,18 @@ from utils import load_model_and_tokenizer, load_name_mapping, load_filter_words
 from utils import async_redact_text, async_generate_response
 
 os.environ["TOKENIZERS_PARALLELISM"] = "False"
+config = json.load(open("config.json"))
 
-
-BASE_MODEL_PATH = "google/gemma-2b"  # Path to the base model
-# LORA_ADAPTERS_PATH = "./gemma_finetuned_lora-9b"# Path to the LoRA adapters
-# BASE_MODEL_PATH = "HuggingFaceTB/SmolLM-135M-Instruct"
-LORA_ADAPTERS_PATH = r"C:\Users\joshf\smolLm\gemma_finetuned_lora"
-NAME_MAPPING_PATH = "name_mapping.txt"
-DISCORD_BOT_AUTH_TOKEN_PATH = "discord_bot_auth_token.txt"
-FILTER_WORDS_PATH = "filter.txt"
+BASE_MODEL_PATH = "HuggingFaceTB/SmolLM-135M-Instruct"
+# BASE_MODEL_PATH = "google/gemma2-2b"  # Path to the base model
+LORA_ADAPTERS_PATH = config["lora_adapter_file"]
+NAME_MAPPING_PATH = config["name_mapping_file"]
+DISCORD_BOT_AUTH_TOKEN_PATH = config["discord_bot_auth_token_file"]
+HUGGING_FACE_AUTH_TOKEN = config["hugging_face_auth_token_file"]
+FILTER_WORDS_PATH = config["filter_file"]
+LOG_FILE_PATH = config["log_file"]
+GUILD_WHITE_LIST_PATH = config["guild_whitelist_file"]
 QUANTIZATION_CONFIG = QuantoConfig(weights="float8")
-HF_token_file = "key2.txt"
 
 NUMBER_OF_MESSAGES_IN_CONTEXT_WINDOW = 0
 
@@ -44,21 +46,28 @@ class InferenceBot(commands.Bot):
         super().__init__(command_prefix='!', intents=intents, permissions=discord.Permissions(3072))
         
         # TODO Make model and tokenizer and stuff have actual type hints
-        HF_Token = load_auth_token(HF_token_file)
-        self.model, self.tokenizer = load_model_and_tokenizer(model_path, quantization_config,HF_Token)
+        HF_Token = load_auth_token(HUGGING_FACE_AUTH_TOKEN)
+        self.model, self.tokenizer = load_model_and_tokenizer(model_path,HF_Token)
         if lora_adapter_path:
             self.model = load_lora_adapter_from_base_model(self.model, lora_adapter_path)
             
         #quantize on load    
-        self.model = quanto.quantize(self.model,QUANTIZATION_CONFIG)
-
+        quanto.quantize(self.model, quantization_config)
+        print(f'model: {self.model}')
 
         self.name_mapping = load_name_mapping(name_mapping_file_path)
         self.filter_patterns = load_filter_words(filter_words_file_path)
     
     async def on_ready(self):
+        
+        with open(GUILD_WHITE_LIST_PATH, newline='') as f:
+            reader = csv.reader(f)
+            guild_whitelist = list(reader)[0]
+
         for guild in self.guilds:
+            if guild.name not in guild_whitelist: continue
             await self.download_and_update_guild_message_history(guild)
+        
         
         print(f'{self.user} has connected to Discord!')
         print(f'Guild permissions: {self.guilds[0].me.guild_permissions.value if self.guilds else "Not in any guild"}')
@@ -91,14 +100,16 @@ class InferenceBot(commands.Bot):
             # Create the simple role-play instruction
             past_n_messages = await self.get_past_n_messages_in_channel(message.channel, NUMBER_OF_MESSAGES_IN_CONTEXT_WINDOW)
             context = ""
+            
             for message in past_n_messages:
                 context += (message.content + "\n")
-            
+
+            system_prompt = ""
             if NUMBER_OF_MESSAGES_IN_CONTEXT_WINDOW > 0:
                 system_prompt = f"The following is a snippit of the current conversation:\n {context}"
-                
-            system_prompt += f"You are now role-playing as {real_target_name}. Respond as {real_target_name} would."
 
+            system_prompt += f"You are now role-playing as {real_target_name}. Respond as {real_target_name} would."
+            
             print(f"system_prompt: {system_prompt}")
             prompt = f"{system_prompt}\n\n{user_name}: {content}\n{real_target_name}:"
                         
@@ -106,6 +117,7 @@ class InferenceBot(commands.Bot):
                 async with message.channel.typing():
                     unredacted_response = await async_generate_response(self.model, self.tokenizer, prompt)
                     redacted_response = await async_redact_text(unredacted_response, self.filter_patterns)
+                    print(redacted_response)
                 
                 # Split the response into chunks of 2000 characters or less
                 chunks = [redacted_response[i:i+2000] for i in range(0, len(redacted_response), 2000)]
@@ -116,6 +128,7 @@ class InferenceBot(commands.Bot):
                 
                 # Log both unredacted and redacted responses
                 await self.log_response(user_name, real_target_name, content, unredacted_response, redacted_response)
+                
             except discord.errors.Forbidden:
                 print(f"Error: Bot doesn't have permission to send messages in {message.channel}")
             except Exception as e:
@@ -145,12 +158,14 @@ class InferenceBot(commands.Bot):
         log_entry = f"[{timestamp}] {user_name} to {target_name}: {content}\n"
         log_entry += f"{target_name}-bot (Unredacted): {unredacted_response}\n"
         log_entry += f"{target_name}-bot (Redacted): {redacted_response}\n\n"
-        with open("logs.txt", "a", encoding="utf-8") as log_file:
+        with open(LOG_FILE_PATH, "a", encoding="utf-8") as log_file:
             log_file.write(log_entry)
 
 
     async def get_past_n_messages_in_channel(self, channel: discord.TextChannel, number_of_past_messages: int) -> List[discord.Message]:
+        if number_of_past_messages == 0: return []
         return [message async for message in channel.history(limit=number_of_past_messages)]
+        
         
     
     # TODO maybe in the future we would want to make this into a database so retrieval per person is faster
@@ -212,15 +227,6 @@ class InferenceBot(commands.Bot):
 
 def main():
 
-    # try:
-    #     await bot.load_model_and_tokenizer(base_model_path, lora_path)
-    # except Exception as e:
-    #     print(f"Failed to load model and tokenizer: {e}")
-    #     return
-
-    # bot.load_name_mapping(name_mapping_path)
-    # bot.load_filter_words(filter_words_path)
-    
     bot = InferenceBot(
         model_path = BASE_MODEL_PATH, 
         name_mapping_file_path = NAME_MAPPING_PATH,

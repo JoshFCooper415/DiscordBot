@@ -1,6 +1,8 @@
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, QuantoConfig, PreTrainedTokenizer, PreTrainedModel
 
+import discord 
+
 from peft import PeftModel, PeftConfig
 import traceback
 import re
@@ -9,7 +11,7 @@ from typing import Dict, Tuple, List
 
 
 # TODO add options for using bits and bytes quantization
-def load_model_and_tokenizer(base_model_path: str, quantization_config: QuantoConfig = None, hugging_face_auth_token: str = None) -> Tuple[PreTrainedModel, PreTrainedTokenizer]:
+def load_model_and_tokenizer(base_model_path: str, hugging_face_auth_token: str = None) -> Tuple[PreTrainedModel, PreTrainedTokenizer]:
     print(f"Loading tokenizer from {base_model_path}")
     
     # Load tokenizer
@@ -31,7 +33,7 @@ def load_model_and_tokenizer(base_model_path: str, quantization_config: QuantoCo
     print("Loading base model...")
     model = AutoModelForCausalLM.from_pretrained(
         base_model_path,
-         token=hugging_face_auth_token,
+        token=hugging_face_auth_token,
         torch_dtype=torch.float16,
         device_map="auto"
     )
@@ -180,25 +182,39 @@ async def async_generate_response(
             #     break
             if next_token_id.item() == eos_token_id:
                 break
-            
+
     response = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
     response = response.split(prompt)[-1].strip()  # Remove the prompt from the response
     
+
     # Remove any content after a line starting with a name followed by a colon
     response_lines = response.split('\n')
     filtered_response_lines = []
+
     for line in response_lines:
         if re.match(r'^[A-Za-z]+:', line):
             break
         filtered_response_lines.append(line)
     
     response = '\n'.join(filtered_response_lines).strip()
-
+    
     return response
 
 
+async def async_generate_summary_of_user(
+    user: discord.User,
+    model: PreTrainedModel, 
+    tokenizer: PreTrainedTokenizer,
+    max_tokens: int = 2048,
+    temperature: float = 0.7, 
+    top_p: float = 0.9
+) -> str:
+    pass
 
-async def async_clean_message(message: str) -> str:
+
+
+
+def clean_message(message: str) -> str:
     # Remove attachments
     message = re.sub(r'\[Attachment:.*?\]', '', message)
     

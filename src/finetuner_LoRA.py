@@ -4,12 +4,17 @@ from transformers import TrainingArguments, Trainer
 from torch.utils.data import ConcatDataset
 from datasets import load_dataset  # Add this import
 from peft import prepare_model_for_kbit_training, LoraConfig, get_peft_model
+import json
 
 from utils import show_gpu_specs, load_name_mapping, load_model_and_tokenizer, load_auth_token
 from finetune_datasets.trump_tweets import TrumpTweetsDataset
 from finetune_datasets.chat_logs import ChatDataset
-    
 
+config = json.load(open("config.json"))
+
+HUGGING_FACE_AUTH_TOKEN_PATH = config["hugging_face_auth_token_file"]
+NAME_MAPPING_PATH = config["name_mapping_file"]    
+TRAINING_CSV_FILE = "message_histories/Cerver/chamber-of.csv"
     
 def main():
     warnings.filterwarnings("ignore", message="torch.utils.checkpoint: the use_reentrant parameter")
@@ -20,7 +25,7 @@ def main():
     torch.cuda.empty_cache()
 
     model_name = "google/gemma-2-2b-it"  # Using the smaller 2B model
-    hugging_face_auth_token = load_auth_token("hugging_face_auth_token.txt")
+    hugging_face_auth_token = load_auth_token(HUGGING_FACE_AUTH_TOKEN_PATH)
     
     print("Starting to load model and tokenizer...")
     
@@ -41,17 +46,15 @@ def main():
     # Print the number of trainable parameters
     model.print_trainable_parameters()
     
-    csv_file_path = "message_histories/Cerver.csv"
-    
-    name_mapping_path = "name_mapping.txt"
+    csv_file_path = TRAINING_CSV_FILE
     
     try:
         print("Loading name mapping...")
-        name_mapping = load_name_mapping(name_mapping_path)
+        name_mapping = load_name_mapping(NAME_MAPPING_PATH)
         print("Name mapping loaded successfully.")
     except Exception as e:
         print(f"Error loading name mapping: {e}")
-        print("Please check your name_mapping.txt file and try again.")
+        print("Please check your name_mapping file and try again.")
         return
 
     print("Creating datasets...")

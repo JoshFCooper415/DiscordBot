@@ -5,7 +5,7 @@ import csv
 import pandas as pd
 from typing import List, Dict
 
-from utils import async_clean_message
+from utils import clean_message
 
 
 class ChatDataset(Dataset):
@@ -25,7 +25,7 @@ class ChatDataset(Dataset):
                 continue
 
             # Clean the message content
-            cleaned_content = async_clean_message(entry['Content'])
+            cleaned_content = clean_message(entry['Content'])
             
             # Skip empty messages
             if not cleaned_content:

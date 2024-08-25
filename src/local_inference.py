@@ -5,10 +5,12 @@ from transformers import QuantoConfig, BitsAndBytesConfig
 
 from typing import List
 import asyncio
+import json
 
 from utils import load_model_and_tokenizer, async_generate_response, async_redact_text, load_auth_token
 
 os.environ["TOKENIZERS_PARALLELISM"] = "False"
+config = json.load(open("config.json"))
 
 
 # Constants
@@ -21,11 +23,13 @@ TEMPERATURE = 0.7
 TOP_P = 0.9
 QUANTIZATION_CONFIG = BitsAndBytesConfig(load_in_8bit=True) # QuantoConfig(weights="int2")
 
+HUGGING_FACE_AUTH_TOKEN_PATH = config["hugging_face_auth_token_file"]
+
 
 system_prompt = ""
 
 async def main():
-    hugging_face_auth_token = load_auth_token("hugging_face_auth_token.txt")
+    hugging_face_auth_token = load_auth_token(HUGGING_FACE_AUTH_TOKEN_PATH)
     model, tokenizer = load_model_and_tokenizer(ORIGINAL_MODEL_NAME, QUANTIZATION_CONFIG, hugging_face_auth_token)
     
     if model is None or tokenizer is None:

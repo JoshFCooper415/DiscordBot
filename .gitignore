@@ -10,3 +10,5 @@ gemma_*
 longcustom*
 smollm_*
 message_histories
+
+setup.bash
