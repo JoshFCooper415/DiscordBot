@@ -1,9 +1,14 @@
 models
 Cerver*
 name_mapping.txt
+discord_bot_auth_token.txt
+hugging_face_auth_token.txt
 key*
 filter.txt
 logs.txt
 gemma_*
 longcustom*
 smollm_*
+message_histories
+
+setup.bash

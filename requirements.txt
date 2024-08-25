@@ -1,0 +1,6 @@
+transformers
+peft
+torch
+discord
+aiocsv
+aiofiles

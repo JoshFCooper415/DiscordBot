@@ -1,13 +1,9 @@
 import re
 import os
 from datasets import load_dataset, Dataset
-import pyarrow as pa
-from functools import partial
 from multiprocessing import Pool, cpu_count, shared_memory
 import numpy as np
 from tqdm import tqdm
-import pandas as pd
-import mmap
 import warnings
 import logging
 

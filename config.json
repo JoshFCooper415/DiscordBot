@@ -1,0 +1,11 @@
+{
+    "discord_bot_auth_token_file": "discord_bot_auth_token.txt",
+    "hugging_face_auth_token_file": "hugging_face_auth_token.txt",
+
+    "lora_adapter_file": "",
+    "name_mapping_file": "name_mapping.txt",
+    "system_prompt_file": "system_prompt.txt",
+    "guild_whitelist_file": "guild_whitelist.csv",
+    "filter_file": "filter.txt",
+    "log_file": "logs.txt"
+}
